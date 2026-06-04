@@ -1,0 +1,512 @@
+// API client for the 3rike backend.
+//
+// Responsibilities:
+//   - Read base URL from VITE_API_URL.
+//   - Inject the JWT from session storage on every request.
+//   - Normalize errors into a typed ApiError that carries HTTP status + the
+//     backend "error" code so callers can show specific messages.
+//   - Be tolerant of Render free-tier cold starts (first hit can take ~60s).
+//   - On 401, clear the local session and emit a global event so AuthProvider
+//     can react without coupling api.ts to React.
+
+import { clearSession, getToken } from "./session";
+
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+
+// Cold starts on Render free tier can take ~60s.
+const DEFAULT_TIMEOUT_MS = 90_000;
+
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string, message?: string) {
+    super(message ?? code);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+// Fired when the API returns 401, so AuthProvider can navigate to /login.
+// Using a window event keeps this module decoupled from React/router.
+export const UNAUTHORIZED_EVENT = "3rike:unauthorized";
+
+type RequestOptions = RequestInit & {
+  /** Skip JWT injection (used by /auth/login + /auth/register). */
+  skipAuth?: boolean;
+  /** Override the default timeout. */
+  timeoutMs?: number;
+};
+
+async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const { skipAuth, timeoutMs = DEFAULT_TIMEOUT_MS, headers, ...rest } = opts;
+
+  const finalHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(headers as Record<string, string> | undefined),
+  };
+
+  if (!skipAuth) {
+    const token = getToken();
+    if (token) finalHeaders["Authorization"] = `Bearer ${token}`;
+  }
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...rest,
+      headers: finalHeaders,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new ApiError(0, "timeout", "Request timed out. Please try again.");
+    }
+    throw new ApiError(0, "network_error", "Network error. Please check your connection.");
+  } finally {
+    window.clearTimeout(timeout);
+  }
+
+  // Handle 401 globally: drop the session and let listeners react.
+  if (res.status === 401 && !skipAuth) {
+    clearSession();
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+  }
+
+  const text = await res.text();
+  const data = text ? safeParse(text) : {};
+
+  if (!res.ok) {
+    const code = (data as Record<string, unknown>)?.error;
+    throw new ApiError(
+      res.status,
+      typeof code === "string" ? code : "request_failed",
+    );
+  }
+
+  return data as T;
+}
+
+function safeParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
+// =============================================================================
+// Auth
+// =============================================================================
+
+export type Role = "driver" | "investor" | "admin";
+
+export type User = {
+  id: number;
+  email: string;
+  role: Role;
+  canton_party_id?: string;
+  created_at: string;
+};
+
+export type LoginResponse = {
+  token: string;
+  session_id: string;
+};
+
+export function register(payload: {
+  email: string;
+  password: string;
+  role: Role;
+}): Promise<User> {
+  return request<User>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    skipAuth: true,
+  });
+}
+
+export function login(payload: {
+  email: string;
+  password: string;
+}): Promise<LoginResponse> {
+  return request<LoginResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    skipAuth: true,
+  });
+}
+
+export function me(): Promise<User> {
+  return request<User>("/auth/me");
+}
+
+export function logout(): Promise<void> {
+  return request<void>("/auth/logout", { method: "POST" });
+}
+
+export function updateProfile(payload: { email: string }): Promise<User> {
+  return request<User>("/auth/profile", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function changePassword(payload: {
+  old_password: string;
+  new_password: string;
+}): Promise<{ message: string }> {
+  return request<{ message: string }>("/auth/password", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAccount(): Promise<void> {
+  return request<void>("/auth/account", { method: "DELETE" });
+}
+
+export type Session = {
+  id: string;
+  user_id: number;
+  role: Role;
+  created_at: string;
+  expires_at: string;
+};
+
+export function listSessions(): Promise<Session[]> {
+  return request<Session[]>("/auth/sessions");
+}
+
+export function revokeSession(sessionId: string): Promise<void> {
+  return request<void>(`/auth/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
+}
+
+// =============================================================================
+// Canton Wallet
+// =============================================================================
+
+/**
+ * Live wallet balance fetched from the Canton ledger. All quantity fields are
+ * decimal strings (Canton uses arbitrary-precision decimals, so we don't lose
+ * precision by parsing them as numbers — keep them as strings and format on
+ * display).
+ */
+export type WalletBalance = {
+  round: number;
+  effective_unlocked_qty: string;
+  effective_locked_qty: string;
+  total_holding_fees: string;
+};
+
+export function linkWallet(payload: {
+  canton_party_id: string;
+}): Promise<User> {
+  return request<User>("/auth/wallet", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWalletBalance(): Promise<WalletBalance> {
+  return request<WalletBalance>("/auth/wallet/balance");
+}
+
+// =============================================================================
+// Drivers
+// =============================================================================
+
+export type Driver = {
+  id: number;
+  user_id: number;
+  full_name: string;
+  phone: string;
+  country: string;
+  credit_score: number;
+  weeks_remaining: number;
+  created_at: string;
+};
+
+export function createDriver(payload: {
+  full_name: string;
+  phone: string;
+  country: string;
+}): Promise<Driver> {
+  return request<Driver>("/api/drivers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getDriver(id: number): Promise<Driver> {
+  return request<Driver>(`/api/drivers/${id}`);
+}
+
+export function listDrivers(): Promise<Driver[]> {
+  return request<Driver[]>("/api/drivers");
+}
+
+// =============================================================================
+// Investors
+// =============================================================================
+
+export type Investor = {
+  id: number;
+  user_id: number;
+  full_name: string;
+  wallet_address: string;
+  created_at: string;
+};
+
+export function createInvestor(payload: {
+  full_name: string;
+  wallet_address: string;
+}): Promise<Investor> {
+  return request<Investor>("/api/investors", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getInvestor(id: number): Promise<Investor> {
+  return request<Investor>(`/api/investors/${id}`);
+}
+
+// =============================================================================
+// Tricycles
+// =============================================================================
+
+export type TricycleStatus =
+  | "available"
+  | "financing"
+  | "owned"
+  | "tokenized"
+  | "fractionalized";
+
+export type Tricycle = {
+  id: number;
+  driver_id: number;
+  make: string;
+  model: string;
+  is_ev: boolean;
+  price_usd: number;
+  status: TricycleStatus;
+  contract_id: string;
+  total_fractions: number;
+  created_at: string;
+};
+
+export function listTricycles(): Promise<Tricycle[]> {
+  return request<Tricycle[]>("/api/tricycles");
+}
+
+export function getTricycle(id: number): Promise<Tricycle> {
+  return request<Tricycle>(`/api/tricycles/${id}`);
+}
+
+// =============================================================================
+// Fractions (user purchases)
+// =============================================================================
+
+export type Fraction = {
+  id: number;
+  tricycle_id: number;
+  investor_id: number;
+  units: number;
+  price_per_unit: number;
+  created_at: string;
+};
+
+/**
+ * Purchase fractional ownership in a tricycle. Backend lazily creates an
+ * investor profile for the caller if they don't have one.
+ */
+export function buyFraction(payload: {
+  tricycle_id: number;
+  units: number;
+}): Promise<Fraction> {
+  return request<Fraction>("/api/fractions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listInvestments(investorId: number): Promise<Fraction[]> {
+  return request<Fraction[]>(`/api/investors/${investorId}/investments`);
+}
+
+// =============================================================================
+// Yield (investor earnings)
+// =============================================================================
+
+export type YieldPayout = {
+  id: number;
+  investor_id: number;
+  fraction_id: number;
+  amount_usdc: number;
+  week_number: number;
+  created_at: string;
+};
+
+export function listYieldPayouts(investorId: number): Promise<YieldPayout[]> {
+  return request<YieldPayout[]>(`/api/yield/investor/${investorId}`);
+}
+
+// =============================================================================
+// Savings
+// =============================================================================
+
+export type Savings = {
+  id: number;
+  driver_id: number;
+  balance_usdc: number;
+  created_at: string;
+};
+
+export function getSavingsBalance(driverId: number): Promise<Savings> {
+  return request<Savings>(`/api/savings/${driverId}/balance`);
+}
+
+export function deposit(payload: {
+  driver_id: number;
+  amount_usdc: number;
+}): Promise<Savings> {
+  return request<Savings>("/api/savings/deposit", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// =============================================================================
+// Payments (driver weekly repayments)
+// =============================================================================
+
+export type PaymentStatus = "pending" | "confirmed" | "failed";
+
+export type Payment = {
+  id: number;
+  driver_id: number;
+  tricycle_id: number;
+  amount_local: number;
+  amount_usdc: number;
+  currency: string;
+  status: PaymentStatus;
+  week_number: number;
+  created_at: string;
+};
+
+export function recordPayment(payload: {
+  driver_id: number;
+  tricycle_id: number;
+  amount_local: number;
+  amount_usdc: number;
+  currency: string;
+  week_number: number;
+}): Promise<Payment> {
+  return request<Payment>("/api/payments", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, status: "pending" }),
+  });
+}
+
+export function listPayments(driverId: number): Promise<Payment[]> {
+  return request<Payment[]>(`/api/payments/driver/${driverId}`);
+}
+
+// =============================================================================
+// Loans
+// =============================================================================
+
+export type LoanStatus = "active" | "repaid" | "defaulted";
+
+export type Loan = {
+  id: number;
+  driver_id: number;
+  principal_usdc: number;
+  remaining_usdc: number;
+  weekly_repayment: number;
+  status: LoanStatus;
+  created_at: string;
+};
+
+/**
+ * Apply for a loan. Backend requires the driver's credit_score >= 500 — newly
+ * created drivers start at 0, so expect 422 / forbidden until repayment
+ * history bumps their score.
+ */
+export function applyForLoan(payload: {
+  driver_id: number;
+  principal_usdc: number;
+  weekly_repayment: number;
+}): Promise<Loan> {
+  return request<Loan>("/api/loans", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getLoan(id: number): Promise<Loan> {
+  return request<Loan>(`/api/loans/${id}`);
+}
+
+export function repayLoan(id: number, amountUSDC: number): Promise<Loan> {
+  return request<Loan>(`/api/loans/${id}/repay`, {
+    method: "PUT",
+    body: JSON.stringify({ amount_usdc: amountUSDC }),
+  });
+}
+
+// =============================================================================
+// Waitlist (public — pre-launch landing page)
+// =============================================================================
+
+export type WaitlistEntry = {
+  id: number;
+  email: string;
+  phone?: string;
+  referral_code: string;
+  referred_by?: string;
+  position: number;
+  created_at: string;
+};
+
+export type JoinResponse = {
+  entry: WaitlistEntry;
+  totalCount: number;
+};
+
+export type StatsResponse = {
+  totalCount: number;
+};
+
+export type GetByCodeResponse = {
+  entry: WaitlistEntry;
+  totalCount: number;
+  referralCount: number;
+};
+
+export function joinWaitlist(payload: {
+  email: string;
+  phone?: string;
+  referredBy?: string;
+}): Promise<JoinResponse> {
+  return request<JoinResponse>("/waitlist/join", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    skipAuth: true,
+  });
+}
+
+export function getWaitlistStats(): Promise<StatsResponse> {
+  return request<StatsResponse>("/waitlist/stats", { skipAuth: true });
+}
+
+export function getWaitlistEntry(code: string): Promise<GetByCodeResponse> {
+  return request<GetByCodeResponse>(`/waitlist/${encodeURIComponent(code)}`, {
+    skipAuth: true,
+  });
+}
