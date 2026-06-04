@@ -141,6 +141,7 @@ export default function CreateAccountForm() {
                 {
                     fullName: `${data.firstName.trim()} ${data.lastName.trim()}`.trim(),
                     phone: data.phone.trim(),
+                    pin: data.pin,
                 },
             );
             navigate("/driver", { replace: true });

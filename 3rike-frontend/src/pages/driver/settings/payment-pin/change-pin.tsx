@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { X, Lock, Eye, Check } from "lucide-react";
 import { useState } from "react";
 import MobileFrame from "@/components/ui/mobile-frame";
-import { ApiError, changePin } from "@/lib/api";
+import { ApiError, changePin, verifyPin } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 type Step = "old" | "new" | "confirm" | "done";
@@ -35,13 +35,17 @@ export default function ChangePaymentPin() {
             setStep("done");
         } catch (err) {
             if (err instanceof ApiError && err.code === "wrong_pin") {
-                setError("Your current PIN is incorrect.");
-                setStep(hasPin ? "old" : "new");
+                // Keep the new PIN they already chose — just send them back to
+                // re-enter the current PIN.
+                setError("Your current PIN is incorrect. Re-enter it to continue.");
+                setOldPin("");
+                setStep("old");
             } else {
                 setError("Couldn't update your PIN. Please try again.");
+                setOldPin("");
+                setNewPin("");
+                setStep(hasPin ? "old" : "new");
             }
-            setOldPin("");
-            setNewPin("");
         } finally {
             setSubmitting(false);
             setPin("");
@@ -49,12 +53,25 @@ export default function ChangePaymentPin() {
     };
 
     // Advance through steps as each 4-digit PIN completes.
-    const commit = (value: string) => {
+    const commit = async (value: string) => {
         setError(null);
         if (step === "old") {
-            setOldPin(value);
-            setStep("new");
-            setPin("");
+            // Verify the current PIN immediately — don't advance if it's wrong.
+            setSubmitting(true);
+            try {
+                await verifyPin(value);
+                setOldPin(value);
+                setStep("new");
+            } catch (err) {
+                setError(
+                    err instanceof ApiError && err.code === "wrong_pin"
+                        ? "Your current PIN is incorrect. Try again."
+                        : "Couldn't verify your PIN. Try again.",
+                );
+            } finally {
+                setSubmitting(false);
+                setPin("");
+            }
         } else if (step === "new") {
             setNewPin(value);
             setStep("confirm");
@@ -82,7 +99,7 @@ export default function ChangePaymentPin() {
             setPin(next);
             if (next.length === 4) {
                 // brief pause so the 4th dot renders before advancing
-                setTimeout(() => commit(next), 120);
+                setTimeout(() => void commit(next), 120);
             }
         }
     };

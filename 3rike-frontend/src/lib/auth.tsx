@@ -67,7 +67,7 @@ type AuthContextValue = {
     email: string,
     password: string,
     role: Role,
-    profile?: { fullName?: string; phone?: string },
+    profile?: { fullName?: string; phone?: string; pin?: string },
   ) => Promise<User>;
   logout: () => Promise<void>;
   refresh: () => Promise<User | null>;
@@ -214,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       role: Role,
-      profile?: { fullName?: string; phone?: string },
+      profile?: { fullName?: string; phone?: string; pin?: string },
     ) => {
       // EVM backend returns a token + user (with embedded wallet) on register.
       const { token, user } = await apiRegister({
@@ -223,6 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         fullName: profile?.fullName,
         phone: profile?.phone,
+        pin: profile?.pin,
       });
       setSession({ token });
       // Newly-registered users have no profile yet (needs onboarding).

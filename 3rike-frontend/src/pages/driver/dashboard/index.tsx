@@ -106,7 +106,7 @@ export default function DriverDashboard() {
         <div className="px-6 flex items-center justify-between pt-6 mb-4">
           <button
             type="button"
-            onClick={() => navigate("/driver/settings/profile")}
+            onClick={() => navigate("/driver/settings")}
             className="flex items-center gap-3 bg-white rounded-full cursor-pointer hover:opacity-90 transition-opacity"
           >
             <Avatar

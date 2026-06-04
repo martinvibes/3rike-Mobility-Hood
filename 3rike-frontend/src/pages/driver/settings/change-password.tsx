@@ -165,7 +165,7 @@ function PasswordField({
 
 function messageFor(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 422) return "Your current password is incorrect.";
+    if (err.code === "wrong_password" || err.status === 422) return "Your current password is incorrect.";
     if (err.code === "timeout") return "The server is waking up — please try again.";
     if (err.code === "network_error") return "Couldn't reach the server.";
   }

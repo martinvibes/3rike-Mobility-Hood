@@ -10,7 +10,7 @@ interface WithdrawModalProps {
     onWithdrawn?: () => void;
 }
 
-type View = "menu" | "crypto" | "bank" | "success";
+type View = "menu" | "crypto" | "pin" | "bank" | "success";
 
 export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: WithdrawModalProps) {
     const { balance, refresh } = useWalletBalance();
@@ -20,6 +20,7 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
     const [view, setView] = useState<View>("menu");
     const [to, setTo] = useState("");
     const [amount, setAmount] = useState("");
+    const [pin, setPin] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastTx, setLastTx] = useState<{ hash: string; explorer: string } | null>(null);
@@ -30,6 +31,7 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
             setView("menu");
             setTo("");
             setAmount("");
+            setPin("");
             setError(null);
             setLastTx(null);
         } else {
@@ -49,21 +51,41 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
     const amountValid = !Number.isNaN(amountNum) && amountNum > 0 && amountNum <= spendable;
     const canSubmit = addressValid && amountValid && !submitting;
 
-    const handleWithdraw = async () => {
+    const proceedToPin = () => {
         if (!addressValid) return setError("Enter a valid wallet address (0x…).");
         if (!amountValid) return setError("Enter an amount within your spendable balance.");
+        setError(null);
+        setPin("");
+        setView("pin");
+    };
+
+    const handleWithdraw = async (pinValue: string) => {
         setSubmitting(true);
         setError(null);
         try {
-            const res = await withdrawCrypto({ to: to.trim(), amountUsdc: amount.trim() });
+            const res = await withdrawCrypto({ to: to.trim(), amountUsdc: amount.trim(), pin: pinValue });
             setLastTx({ hash: res.txHash, explorer: res.explorer });
             onWithdrawn?.();
             void refresh();
             setView("success");
         } catch (err) {
             setError(messageFor(err));
+            setPin("");
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const handlePinPress = (num: string) => {
+        if (submitting) return;
+        if (num === "x") {
+            setPin((p) => p.slice(0, -1));
+            return;
+        }
+        if (pin.length < 4) {
+            const next = pin + num;
+            setPin(next);
+            if (next.length === 4) setTimeout(() => void handleWithdraw(next), 120);
         }
     };
 
@@ -158,11 +180,48 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
 
             <Button
                 disabled={!canSubmit}
-                onClick={handleWithdraw}
+                onClick={proceedToPin}
                 className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-medium text-base rounded-xl cursor-pointer disabled:bg-[#9fe0bb] disabled:cursor-not-allowed"
             >
-                {submitting ? "Sending on-chain…" : "Withdraw"}
+                Continue
             </Button>
+        </div>
+    );
+
+    const renderPin = () => (
+        <div className="flex flex-col w-full animate-in slide-in-from-right-10 duration-300">
+            <div className="w-full relative flex items-center justify-center mb-6">
+                <button onClick={() => { setView("crypto"); setError(null); }} className="absolute left-0 p-2 text-gray-400 hover:text-gray-600 cursor-pointer">
+                    <ArrowLeft size={20} />
+                </button>
+                <h2 className="text-xl font-bold text-gray-900">Enter your PIN</h2>
+            </div>
+
+            <p className="text-gray-400 text-xs text-center mb-6">
+                Confirm withdrawal of ${Number(amount || 0).toFixed(2)} with your 4-digit PIN.
+            </p>
+
+            <div className="flex justify-center gap-3 mb-2">
+                {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="w-14 h-14 rounded-xl flex items-center justify-center bg-[#EBEBEB]">
+                        {pin.length > i && <div className="w-3 h-3 bg-black rounded-full" />}
+                    </div>
+                ))}
+            </div>
+
+            {error && <p className="text-sm text-red-500 my-3 text-center" role="alert">{error}</p>}
+            {submitting && <p className="text-sm text-gray-400 my-3 text-center">Sending on-chain…</p>}
+
+            <div className="grid grid-cols-3 gap-2 px-2 mt-4">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                    <button key={num} onClick={() => handlePinPress(String(num))} className="h-12 bg-gray-50 rounded-lg text-xl font-semibold text-black active:bg-gray-100">
+                        {num}
+                    </button>
+                ))}
+                <div className="h-12" />
+                <button onClick={() => handlePinPress("0")} className="h-12 bg-gray-50 rounded-lg text-xl font-semibold text-black active:bg-gray-100">0</button>
+                <button onClick={() => handlePinPress("x")} className="h-12 bg-gray-50 rounded-lg flex items-center justify-center active:bg-gray-100"><span className="text-lg">⌫</span></button>
+            </div>
         </div>
     );
 
@@ -218,6 +277,7 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
                 <div className="mx-auto w-12 h-2 bg-gray-300 rounded-full mb-6" />
                 {view === "menu" && renderMenu()}
                 {view === "crypto" && renderCrypto()}
+                {view === "pin" && renderPin()}
                 {view === "bank" && renderBank()}
                 {view === "success" && renderSuccess()}
             </div>
@@ -227,6 +287,7 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
 
 function messageFor(err: unknown): string {
     if (err instanceof ApiError) {
+        if (err.code === "wrong_pin") return "Incorrect PIN. Please try again.";
         if (err.code === "insufficient_funds") return "Not enough spendable balance.";
         if (err.code === "invalid_input") return "Check the address and amount.";
         if (err.code === "chain_error") return "The withdrawal couldn't be sent on-chain. Try again.";

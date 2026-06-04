@@ -1,4 +1,5 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
@@ -74,15 +75,28 @@ router.post("/dev-fund", requireAuth, async (req: AuthedRequest, res) => {
 const withdrawSchema = z.object({
   to: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   amountUsdc: z.string().regex(/^\d+(\.\d{1,6})?$/),
+  pin: z.string().regex(/^\d{4}$/),
 });
 
 router.post("/withdraw-crypto", requireAuth, async (req: AuthedRequest, res) => {
   const parsed = withdrawSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
-  const { to, amountUsdc } = parsed.data;
+  const { to, amountUsdc, pin } = parsed.data;
 
   const user = await prisma.user.findUnique({ where: { id: req.userId! } });
   if (!user) return res.status(404).json({ error: "not_found" });
+
+  // PIN gate: verify if one is set, otherwise enroll this PIN on first use.
+  if (user.pinHash) {
+    if (!(await bcrypt.compare(pin, user.pinHash))) {
+      return res.status(403).json({ error: "wrong_pin" });
+    }
+  } else {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { pinHash: await bcrypt.hash(pin, 10) },
+    });
+  }
 
   // Only spendable (wallet) USDC can be withdrawn directly.
   const balance = await usdcBalanceRaw(user.walletAddress as `0x${string}`);

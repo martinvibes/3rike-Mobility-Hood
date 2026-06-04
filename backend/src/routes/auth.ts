@@ -15,6 +15,7 @@ const credentials = z.object({
   role: z.enum(["driver", "investor"]).optional(),
   fullName: z.string().optional(),
   phone: z.string().optional(),
+  pin: z.string().regex(/^\d{4}$/).optional(),
 });
 
 type UserRecord = {
@@ -51,7 +52,7 @@ function tokenFor(userId: number): string {
 router.post("/register", async (req, res) => {
   const parsed = credentials.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
-  const { email, password, role, fullName, phone } = parsed.data;
+  const { email, password, role, fullName, phone, pin } = parsed.data;
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return res.status(409).json({ error: "email_taken" });
@@ -64,6 +65,7 @@ router.post("/register", async (req, res) => {
       role: role ?? "driver",
       fullName: fullName ?? null,
       phone: phone ?? null,
+      pinHash: pin ? await bcrypt.hash(pin, 10) : null,
       walletAddress: wallet.address,
       encryptedKey: wallet.encryptedKey,
     },
@@ -137,7 +139,7 @@ router.put("/password", requireAuth, async (req: AuthedRequest, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.userId } });
   if (!user) return res.status(404).json({ error: "not_found" });
   if (!(await bcrypt.compare(parsed.data.old_password, user.passwordHash))) {
-    return res.status(401).json({ error: "wrong_password" });
+    return res.status(403).json({ error: "wrong_password" });
   }
 
   await prisma.user.update({
@@ -162,7 +164,7 @@ router.put("/pin", requireAuth, async (req: AuthedRequest, res) => {
 
   if (user.pinHash) {
     if (!parsed.data.old_pin || !(await bcrypt.compare(parsed.data.old_pin, user.pinHash))) {
-      return res.status(401).json({ error: "wrong_pin" });
+      return res.status(403).json({ error: "wrong_pin" });
     }
   }
 
@@ -171,6 +173,20 @@ router.put("/pin", requireAuth, async (req: AuthedRequest, res) => {
     data: { pinHash: await bcrypt.hash(parsed.data.new_pin, 10) },
   });
   res.json({ message: "pin_updated" });
+});
+
+// Verify the current PIN (used by the change-PIN flow before advancing).
+router.post("/verify-pin", requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = z.object({ pin: z.string().regex(/^\d{4}$/) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
+
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) return res.status(404).json({ error: "not_found" });
+  if (!user.pinHash) return res.status(400).json({ error: "no_pin_set" });
+  if (!(await bcrypt.compare(parsed.data.pin, user.pinHash))) {
+    return res.status(403).json({ error: "wrong_pin" });
+  }
+  res.json({ ok: true });
 });
 
 // Permanently delete the account.

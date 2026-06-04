@@ -69,21 +69,22 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     window.clearTimeout(timeout);
   }
 
-  // Handle 401 globally: drop the session and let listeners react.
-  if (res.status === 401 && !skipAuth) {
-    clearSession();
-    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
-  }
-
   const text = await res.text();
   const data = text ? safeParse(text) : {};
 
   if (!res.ok) {
-    const code = (data as Record<string, unknown>)?.error;
-    throw new ApiError(
-      res.status,
-      typeof code === "string" ? code : "request_failed",
-    );
+    const rawCode = (data as Record<string, unknown>)?.error;
+    const code = typeof rawCode === "string" ? rawCode : "request_failed";
+
+    // Only treat a 401 as "session expired" when it's the auth middleware
+    // rejecting the token — NOT domain 401s like wrong_pin / wrong_password,
+    // which would otherwise log the user out mid-action.
+    if (res.status === 401 && !skipAuth && code === "unauthorized") {
+      clearSession();
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
+
+    throw new ApiError(res.status, code);
   }
 
   return data as T;
@@ -131,6 +132,7 @@ export function register(payload: {
   role: Role;
   fullName?: string;
   phone?: string;
+  pin?: string;
 }): Promise<AuthResponse> {
   return request<AuthResponse>("/auth/register", {
     method: "POST",
@@ -183,6 +185,7 @@ export function cryptoDeposit(
 export function withdrawCrypto(payload: {
   to: string;
   amountUsdc: string;
+  pin: string;
 }): Promise<{ txHash: string; explorer: string }> {
   return request("/wallet/withdraw-crypto", {
     method: "POST",
@@ -229,6 +232,14 @@ export function changePin(payload: {
   return request<{ message: string }>("/auth/pin", {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+/** Verify the current PIN (throws ApiError with code "wrong_pin" if incorrect). */
+export function verifyPin(pin: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>("/auth/verify-pin", {
+    method: "POST",
+    body: JSON.stringify({ pin }),
   });
 }
 
