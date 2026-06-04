@@ -387,7 +387,10 @@ export default function DriverDashboard() {
       <DepositModal
         isOpen={isDepositOpen}
         onClose={() => setIsDepositOpen(false)}
-        onDeposited={refreshSavings}
+        onDeposited={() => {
+          void refreshWallet();
+          void refreshSavings();
+        }}
       />
 
       {/* Withdraw modal */}

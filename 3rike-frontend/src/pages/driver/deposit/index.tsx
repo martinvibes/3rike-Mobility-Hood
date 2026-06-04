@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowLeft, Check, ChevronRight, Copy } from "lucide-react";
+import { ArrowDown, ArrowLeft, Check, ChevronRight, Copy, ExternalLink } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
-import { ApiError, deposit as apiDeposit } from "@/lib/api";
+import { ApiError, cryptoDeposit } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 interface DepositModalProps {
@@ -11,37 +12,35 @@ interface DepositModalProps {
     onDeposited?: () => void;
 }
 
-type View = "menu" | "amount-bank" | "amount-crypto" | "bank" | "crypto" | "success";
+type View = "menu" | "amount-crypto" | "crypto" | "bank" | "success";
 
 export default function DepositModal({ isOpen, onClose, onDeposited }: DepositModalProps) {
-    const { driver } = useAuth();
+    const { user } = useAuth();
+    const address = (user?.walletAddress ?? "") as string;
+
     const [isVisible, setIsVisible] = useState(false);
     const [currentView, setCurrentView] = useState<View>("menu");
     const [amount, setAmount] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [serverError, setServerError] = useState<string | null>(null);
-    const [isSolana, setIsSolana] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const [lastTx, setLastTx] = useState<{ hash: string; explorer: string } | null>(null);
 
-    // Handle animation
     useEffect(() => {
         if (isOpen) {
             setIsVisible(true);
             setCurrentView("menu");
             setAmount("");
             setServerError(null);
+            setLastTx(null);
         } else {
             const timer = setTimeout(() => setIsVisible(false), 300);
             return () => clearTimeout(timer);
         }
     }, [isOpen]);
 
-    // Prevent scrolling
     useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = "hidden";
-        } else {
-            document.body.style.overflow = "unset";
-        }
+        document.body.style.overflow = isOpen ? "hidden" : "unset";
     }, [isOpen]);
 
     if (!isVisible && !isOpen) return null;
@@ -49,11 +48,18 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
     const numericAmount = Number(amount);
     const amountValid = !Number.isNaN(numericAmount) && numericAmount > 0;
 
-    const handleConfirmDeposit = async () => {
-        if (!driver) {
-            setServerError("Complete your verification before depositing.");
-            return;
+    const handleCopy = async () => {
+        if (!address) return;
+        try {
+            await navigator.clipboard.writeText(address);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            // ignore
         }
+    };
+
+    const handleConfirmCrypto = async () => {
         if (!amountValid) {
             setServerError("Please enter a valid amount.");
             return;
@@ -61,10 +67,8 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
         setSubmitting(true);
         setServerError(null);
         try {
-            await apiDeposit({
-                driver_id: driver.id,
-                amount_usdc: numericAmount,
-            });
+            const res = await cryptoDeposit(amount.trim());
+            setLastTx({ hash: res.txHash, explorer: res.explorer });
             onDeposited?.();
             setCurrentView("success");
         } catch (err) {
@@ -84,27 +88,10 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
 
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Deposit</h2>
             <p className="text-gray-400 text-sm font-normal max-w-55 leading-tight mb-8">
-                Choose a method below to add funds to your savings.
+                Choose a method below to add funds to your wallet.
             </p>
 
             <div className="w-full space-y-4">
-                <Button
-                    variant="ghost"
-                    onClick={() => setCurrentView("amount-bank")}
-                    className="w-full h-auto py-4 flex items-center justify-between hover:bg-gray-50 rounded-2xl p-0 cursor-pointer"
-                >
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full bg-[#F5F3FF] flex items-center justify-center">
-                            <img src="/bank.svg" alt="bank" className="w-6 h-6 object-cover" />
-                        </div>
-                        <div className="text-left">
-                            <h3 className="text-base font-light text-gray-900">Bank Transfer</h3>
-                            <p className="text-xs text-gray-400 mt-0.5 font-normal">Deposit directly from your bank account</p>
-                        </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-300" />
-                </Button>
-
                 <Button
                     variant="ghost"
                     onClick={() => setCurrentView("amount-crypto")}
@@ -116,7 +103,24 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
                         </div>
                         <div className="text-left">
                             <h3 className="text-base font-light text-gray-900">Crypto</h3>
-                            <p className="text-xs text-gray-400 mt-0.5 font-normal">Deposit USDC from your wallet</p>
+                            <p className="text-xs text-gray-400 mt-0.5 font-normal">Deposit USDC to your wallet</p>
+                        </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300" />
+                </Button>
+
+                <Button
+                    variant="ghost"
+                    onClick={() => setCurrentView("bank")}
+                    className="w-full h-auto py-4 flex items-center justify-between hover:bg-gray-50 rounded-2xl p-0 cursor-pointer"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-full bg-[#F5F3FF] flex items-center justify-center">
+                            <img src="/bank.svg" alt="bank" className="w-6 h-6 object-cover" />
+                        </div>
+                        <div className="text-left">
+                            <h3 className="text-base font-light text-gray-900">Bank Transfer</h3>
+                            <p className="text-xs text-gray-400 mt-0.5 font-normal">Deposit from your bank (Naira)</p>
                         </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300" />
@@ -125,7 +129,7 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
         </div>
     );
 
-    const renderAmount = (next: "bank" | "crypto") => (
+    const renderAmountCrypto = () => (
         <div className="flex flex-col items-center w-full animate-in slide-in-from-right-10 duration-300">
             <div className="w-full relative flex items-center justify-center mb-6">
                 <button
@@ -142,19 +146,14 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
             </p>
 
             <div className="w-full bg-gray-50 rounded-2xl p-6 mb-6">
-                <label className="text-xs text-gray-400 font-medium block mb-2">
-                    Amount (USDC)
-                </label>
+                <label className="text-xs text-gray-400 font-medium block mb-2">Amount (USDC)</label>
                 <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-light text-gray-400">$</span>
                     <input
                         type="text"
                         inputMode="decimal"
                         value={amount}
-                        onChange={(e) => {
-                            const raw = e.target.value.replace(/[^0-9.]/g, "");
-                            setAmount(raw);
-                        }}
+                        onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                         placeholder="0.00"
                         className="flex-1 bg-transparent text-3xl font-bold text-gray-900 outline-none placeholder:text-gray-300"
                     />
@@ -163,7 +162,7 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
 
             <Button
                 disabled={!amountValid}
-                onClick={() => setCurrentView(next)}
+                onClick={() => setCurrentView("crypto")}
                 className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white rounded-xl text-base font-medium shadow-md shadow-green-100 disabled:bg-[#9fe0bb] disabled:cursor-not-allowed cursor-pointer"
             >
                 Continue
@@ -173,7 +172,7 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
 
     const renderCrypto = () => (
         <div className="flex flex-col items-center w-full animate-in slide-in-from-right-10 duration-300">
-            <div className="w-full relative flex items-center justify-center mb-2">
+            <div className="w-full relative flex items-center justify-center mb-4">
                 <button
                     onClick={() => setCurrentView("amount-crypto")}
                     className="absolute left-0 p-2 text-gray-400 hover:text-gray-600 cursor-pointer"
@@ -183,74 +182,56 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
                 <h2 className="text-xl font-bold text-gray-900">Deposit ${amount || "0.00"}</h2>
             </div>
 
-            {/* Demo-mode safety warning. The address below is a hardcoded
-                placeholder from the original UI mockup — it is NOT a wallet
-                anyone monitors. Real deposits require integrating a custodial
-                wallet provider (Circle, Privy, Magic) so each user gets a
-                unique deposit address whose transactions are confirmed
-                on-chain before crediting the savings balance. */}
-            <div className="w-full mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs leading-relaxed">
-                <p className="font-bold mb-0.5">⚠ Demo mode</p>
-                <p>
-                    The address below is a placeholder. Do <span className="font-bold">not</span> send real
-                    crypto — funds will be lost. Confirming below records a
-                    deposit in the database without any on-chain verification.
-                </p>
-            </div>
-
-            <p className="text-gray-400 text-xs text-center">
-                Only send supported chain to the address below
+            <p className="text-gray-400 text-xs text-center mb-4">
+                Send USDC on Robinhood Chain to your wallet address below.
             </p>
 
-            <div className="bg-white rounded-[32px] w-full max-w-xs flex flex-col items-center -space-y-6 pb-10">
-                <div className="bg-white rounded-xl">
-                    <img src="/qrcode.svg" alt="QR Code" className="w-70 h-70 opacity-90" />
-                </div>
-
-                <div className="text-center w-full">
-                    <p className="text-[10px] text-gray-400 break-all px-4 leading-relaxed font-mono">
-                        0x295cCa3BD7C8C854b7c52Bd7a0dCB10CfFffc44e
-                    </p>
-                    <button className="text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors cursor-pointer">
-                        Copy
-                    </button>
-                </div>
+            {/* Real QR of the user's wallet address */}
+            <div className="bg-white rounded-3xl border border-gray-100 p-5 shadow-sm mb-4">
+                {address ? (
+                    <QRCodeSVG
+                        value={address}
+                        size={196}
+                        level="M"
+                        marginSize={2}
+                        fgColor="#0A0A0A"
+                    />
+                ) : (
+                    <div className="w-49 h-49 bg-gray-100 rounded-xl" />
+                )}
             </div>
 
-            <div className="w-full flex items-center justify-between px-2 mb-8">
-                <div className="flex items-center gap-2">
-                    <img src="/solana.svg" alt="solana" className="w-6 h-6 object-cover" />
-                    <span className="text-xs text-gray-500 font-medium">Switch to Solana Network</span>
-                </div>
+            <div className="w-full bg-gray-50 rounded-2xl p-3 mb-6 flex items-center gap-2">
+                <code className="flex-1 text-[11px] text-gray-600 font-mono break-all leading-relaxed">
+                    {address || "—"}
+                </code>
                 <button
-                    onClick={() => setIsSolana(!isSolana)}
-                    className={`w-11 h-6 flex items-center rounded-full p-1 duration-300 ease-in-out cursor-pointer ${isSolana ? "bg-[#9747FF]" : "bg-gray-200"}`}
+                    onClick={handleCopy}
+                    className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 text-[11px] font-medium text-gray-600 hover:bg-gray-100 cursor-pointer"
                 >
-                    <div className={`bg-white w-4 h-4 rounded-full shadow-md transform duration-300 ease-in-out ${isSolana ? "translate-x-5" : ""}`} />
+                    {copied ? <><Check className="w-3 h-3 text-[#01C259]" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                 </button>
             </div>
 
             {serverError && (
-                <p className="text-sm text-red-500 mb-4 text-center" role="alert">
-                    {serverError}
-                </p>
+                <p className="text-sm text-red-500 mb-4 text-center" role="alert">{serverError}</p>
             )}
 
             <Button
-                disabled={submitting || !driver}
+                disabled={submitting}
                 className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-medium text-base rounded-xl shadow-none cursor-pointer disabled:opacity-60"
-                onClick={handleConfirmDeposit}
+                onClick={handleConfirmCrypto}
             >
-                {submitting ? "Recording…" : "I have sent the money"}
+                {submitting ? "Confirming on-chain…" : "Confirm deposit"}
             </Button>
         </div>
     );
 
     const renderBank = () => (
-        <div className="flex flex-col items-center w-full animate-in slide-in-from-right-10 duration-300">
+        <div className="flex flex-col items-center w-full text-center animate-in slide-in-from-right-10 duration-300 py-4">
             <div className="w-full relative flex items-center justify-center mb-6">
                 <button
-                    onClick={() => setCurrentView("amount-bank")}
+                    onClick={() => setCurrentView("menu")}
                     className="absolute left-0 p-2 text-gray-400 hover:text-gray-600 cursor-pointer"
                 >
                     <ArrowLeft size={20} />
@@ -258,42 +239,19 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
                 <h2 className="text-xl font-bold text-gray-900">Bank Transfer</h2>
             </div>
 
-            {/* Demo-mode safety warning. The bank account number below is a
-                placeholder. A real bank-deposit flow requires a payment
-                processor (Paystack for Ghana, Flutterwave) that webhooks
-                confirmation back to the backend before crediting the balance. */}
-            <div className="w-full mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs leading-relaxed">
-                <p className="font-bold mb-0.5">⚠ Demo mode</p>
-                <p>
-                    The account number below is a placeholder. Do <span className="font-bold">not</span> send
-                    a real transfer. Confirming records a deposit without any
-                    bank-side verification.
-                </p>
+            <div className="w-16 h-16 rounded-full bg-[#F5F3FF] flex items-center justify-center mb-4">
+                <img src="/bank.svg" alt="bank" className="w-8 h-8" />
             </div>
-
-            <div className="w-full bg-gray-50 rounded-2xl p-6 mb-6 text-center space-y-4">
-                <p className="text-sm text-gray-500">Transfer ${amount || "0.00"} USDC equivalent to the account below:</p>
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900 tracking-wider">1234 5678 90</h1>
-                    <p className="text-xs text-gray-400 mt-1">GTBank • 3rike Mobility</p>
-                </div>
-                <Button variant="outline" size="sm" className="gap-2 h-8 text-xs border-gray-200 cursor-pointer">
-                    <Copy size={12} /> Copy Number
-                </Button>
-            </div>
-
-            {serverError && (
-                <p className="text-sm text-red-500 mb-4 text-center" role="alert">
-                    {serverError}
-                </p>
-            )}
-
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Coming soon</h3>
+            <p className="text-gray-400 text-sm max-w-xs leading-relaxed mb-8">
+                Deposit Naira from your bank and we'll convert it to USDC at the live
+                rate. Bank deposits are landing next — for now, use Crypto.
+            </p>
             <Button
-                disabled={submitting || !driver}
-                className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-semibold text-base rounded-xl shadow-none mt-auto cursor-pointer disabled:opacity-60"
-                onClick={handleConfirmDeposit}
+                onClick={() => setCurrentView("menu")}
+                className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-medium text-base rounded-xl cursor-pointer"
             >
-                {submitting ? "Recording…" : "I have sent the money"}
+                Back to methods
             </Button>
         </div>
     );
@@ -303,10 +261,20 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
             <div className="w-20 h-20 rounded-full bg-[#01C259] flex items-center justify-center mb-6">
                 <Check className="w-10 h-10 text-white" strokeWidth={3} />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Deposit Recorded</h2>
-            <p className="text-gray-400 text-sm font-normal max-w-xs leading-relaxed mb-8">
-                ${formatAmount(numericAmount)} added to your savings balance.
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Deposit confirmed</h2>
+            <p className="text-gray-400 text-sm font-normal max-w-xs leading-relaxed mb-4">
+                ${formatAmount(numericAmount)} USDC was credited to your wallet on-chain.
             </p>
+            {lastTx && (
+                <a
+                    href={lastTx.explorer}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-[#01C259] hover:underline mb-8 font-mono"
+                >
+                    {lastTx.hash.slice(0, 10)}… view on explorer <ExternalLink className="w-3 h-3" />
+                </a>
+            )}
             <Button
                 onClick={onClose}
                 className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-medium text-base rounded-xl cursor-pointer"
@@ -320,26 +288,18 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
         <div className="fixed inset-0 z-999 p-5 pb-8 flex items-end justify-center">
             <div
                 onClick={onClose}
-                className={`
-                    absolute inset-0 bg-[#F5F5F5E5] backdrop-blur-sm transition-opacity duration-300
-                    ${isOpen ? "opacity-100" : "opacity-0"}
-                `}
+                className={`absolute inset-0 bg-[#F5F5F5E5] backdrop-blur-sm transition-opacity duration-300 ${isOpen ? "opacity-100" : "opacity-0"}`}
             />
 
             <div
-                className={`
-                    relative w-full max-w-100 bg-white rounded-4xl p-4 pb-8 shadow-2xl
-                    transform transition-transform duration-300 ease-out
-                    ${isOpen ? "translate-y-0" : "translate-y-full"}
-                `}
+                className={`relative w-full max-w-100 bg-white rounded-4xl p-4 pb-8 shadow-2xl transform transition-transform duration-300 ease-out ${isOpen ? "translate-y-0" : "translate-y-full"}`}
             >
                 <div className="mx-auto w-12 h-2 bg-gray-300 rounded-full mb-6" />
 
                 {currentView === "menu" && renderMenu()}
-                {currentView === "amount-bank" && renderAmount("bank")}
-                {currentView === "amount-crypto" && renderAmount("crypto")}
-                {currentView === "bank" && renderBank()}
+                {currentView === "amount-crypto" && renderAmountCrypto()}
                 {currentView === "crypto" && renderCrypto()}
+                {currentView === "bank" && renderBank()}
                 {currentView === "success" && renderSuccess()}
             </div>
         </div>
@@ -360,6 +320,8 @@ function messageFor(err: unknown): string {
                 return "The server is waking up — please try again.";
             case "network_error":
                 return "Couldn't reach the server. Check your connection.";
+            case "chain_error":
+                return "The deposit couldn't be confirmed on-chain. Try again.";
             default:
                 return "Something went wrong recording your deposit.";
         }
