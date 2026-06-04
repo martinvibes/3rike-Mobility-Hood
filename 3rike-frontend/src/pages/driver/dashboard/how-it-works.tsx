@@ -30,7 +30,7 @@ const SLIDES: Slide[] = [
   {
     badge: { icon: TrendingUp, bg: "bg-[#FFF7EC]", iconColor: "text-[#EE9C2E]" },
     title: "Save and grow with us",
-    body: "Save in USDC, earn weekly yield by buying fractions of other tricycles, and link your Canton wallet to hold real on-chain value.",
+    body: "Save in USDC, earn weekly yield by buying fractions of other tricycles, and hold real on-chain value in your in-app wallet.",
     highlights: [
       "Open a savings account and earn from a shared interest pool",
       "Buy a fraction of a tricycle and receive weekly yield payouts",

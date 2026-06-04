@@ -1,21 +1,19 @@
-// Fetches the current user's Canton wallet balance. Returns null when the
-// user hasn't linked a wallet yet (no fetch happens). The Canton API is
-// network-bound and can be slow on cold starts, so callers should expose a
-// loading state.
+// Fetches the current user's live USDC balance on Robinhood Chain (wallet +
+// yield vault). Every authenticated user has an embedded wallet, so this
+// always fetches once a user is present.
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, getWalletBalance, type WalletBalance } from "./api";
+import { ApiError, getEvmBalance, type EvmBalance } from "./api";
 import { useAuth } from "./auth";
 
 type State = {
-  balance: WalletBalance | null;
+  balance: EvmBalance | null;
   loading: boolean;
   error: ApiError | null;
 };
 
 export function useWalletBalance() {
   const { user } = useAuth();
-  const partyId = user?.canton_party_id;
 
   const [state, setState] = useState<State>({
     balance: null,
@@ -24,13 +22,13 @@ export function useWalletBalance() {
   });
 
   const refresh = useCallback(async () => {
-    if (!partyId) {
+    if (!user) {
       setState({ balance: null, loading: false, error: null });
       return;
     }
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const data = await getWalletBalance();
+      const data = await getEvmBalance();
       setState({ balance: data, loading: false, error: null });
     } catch (err) {
       setState({
@@ -39,7 +37,7 @@ export function useWalletBalance() {
         error: err instanceof ApiError ? err : new ApiError(0, "unknown"),
       });
     }
-  }, [partyId]);
+  }, [user]);
 
   useEffect(() => {
     void refresh();
@@ -49,7 +47,7 @@ export function useWalletBalance() {
     balance: state.balance,
     loading: state.loading,
     error: state.error,
-    isLinked: !!partyId,
+    isLinked: !!user,
     refresh,
   };
 }

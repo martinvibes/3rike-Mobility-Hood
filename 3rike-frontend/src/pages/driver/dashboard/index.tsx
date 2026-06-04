@@ -30,7 +30,6 @@ export default function DriverDashboard() {
   const {
     balance: walletBalance,
     loading: walletLoading,
-    isLinked: walletLinked,
     refresh: refreshWallet,
   } = useWalletBalance();
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>(
@@ -111,13 +110,13 @@ export default function DriverDashboard() {
             className="flex items-center gap-3 bg-white rounded-full cursor-pointer hover:opacity-90 transition-opacity"
           >
             <Avatar
-              name={driver?.full_name || user?.email || "rider"}
+              name={user?.fullName || driver?.full_name || user?.email || "rider"}
               size={40}
               className="border-2 border-white"
             />
             <span className="font-light text-sm -mr-5 text-left">
               {greetingFor(new Date())},{" "}
-              <span className="font-medium">{firstNameOf(driver?.full_name, user?.email)}</span>
+              <span className="font-medium">{firstNameOf(user?.fullName || driver?.full_name, user?.email)}</span>
             </span>
             <Button variant="link" tabIndex={-1}>
               <img src="arrow.svg" alt="Arrow" className="w-5 h-5" />
@@ -143,27 +142,21 @@ export default function DriverDashboard() {
               >
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-green-100 text-sm font-light">
-                    {walletLinked ? "Wallet Balance" : "Wallet"}
+                    Wallet Balance
                   </span>
-                  {walletBalance && (
-                    <span className="text-green-100/80 text-[10px] font-light">
-                      Round #{walletBalance.round.toLocaleString()}
-                    </span>
-                  )}
+                  <span className="text-green-100/80 text-[10px] font-light">
+                    Robinhood Chain
+                  </span>
                 </div>
 
                 <div className="flex flex-row justify-between mb-6 min-h-12">
-                  {!walletLinked ? (
-                    <h1 className="text-2xl font-medium">
-                      Tap to link wallet →
-                    </h1>
-                  ) : walletLoading && !walletBalance ? (
+                  {walletLoading && !walletBalance ? (
                     <Skeleton className="h-10 w-40 bg-white/20" />
                   ) : (
                     <h1 className="text-4xl font-bold">
-                      {formatCC(walletBalance?.effective_unlocked_qty)}
+                      $ {formatCC(walletBalance?.totalUsdc)}
                       <span className="text-base font-light text-white/80 ml-1.5 align-middle">
-                        CC
+                        USDC
                       </span>
                     </h1>
                   )}

@@ -103,7 +103,7 @@ export default function SettingsHome() {
                     />
                     <MenuItem
                         icon={Wallet}
-                        label="Canton Wallet"
+                        label="Wallet"
                         onClick={() => navigate("/driver/wallet")}
                     />
                     <MenuItem

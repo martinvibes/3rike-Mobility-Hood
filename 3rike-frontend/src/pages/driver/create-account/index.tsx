@@ -138,6 +138,10 @@ export default function CreateAccountForm() {
                 data.email.trim().toLowerCase(),
                 data.password,
                 "driver",
+                {
+                    fullName: `${data.firstName.trim()} ${data.lastName.trim()}`.trim(),
+                    phone: data.phone.trim(),
+                },
             );
             navigate("/driver", { replace: true });
         } catch (err) {

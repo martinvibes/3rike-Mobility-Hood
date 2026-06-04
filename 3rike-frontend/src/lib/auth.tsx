@@ -63,7 +63,12 @@ type AuthContextValue = {
   /** True when authed but no role-specific profile yet (KYC pending). */
   needsOnboarding: boolean;
   login: (email: string, password: string) => Promise<User>;
-  register: (email: string, password: string, role: Role) => Promise<User>;
+  register: (
+    email: string,
+    password: string,
+    role: Role,
+    profile?: { fullName?: string; phone?: string },
+  ) => Promise<User>;
   logout: () => Promise<void>;
   refresh: () => Promise<User | null>;
   createDriverProfile: (payload: {
@@ -76,6 +81,13 @@ type AuthContextValue = {
     wallet_address: string;
   }) => Promise<Investor>;
   updateEmail: (email: string) => Promise<User>;
+  updateProfile: (payload: {
+    email?: string;
+    fullName?: string;
+    phone?: string;
+    country?: string;
+    address?: string;
+  }) => Promise<User>;
   deleteAccount: () => Promise<void>;
   linkWallet: (cantonPartyId: string) => Promise<User>;
 };
@@ -188,9 +200,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const { token, session_id } = await apiLogin({ email, password });
-      setSession({ token, sessionId: session_id });
-      const user = await apiMe();
+      const { token, user } = await apiLogin({ email, password });
+      setSession({ token });
       const { driver, investor } = await loadProfile(user);
       setState({ status: "authenticated", user, driver, investor });
       return user;
@@ -199,11 +210,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (email: string, password: string, role: Role) => {
-      const user = await apiRegister({ email, password, role });
-      // Backend's register doesn't return a token — log in immediately.
-      const { token, session_id } = await apiLogin({ email, password });
-      setSession({ token, sessionId: session_id });
+    async (
+      email: string,
+      password: string,
+      role: Role,
+      profile?: { fullName?: string; phone?: string },
+    ) => {
+      // EVM backend returns a token + user (with embedded wallet) on register.
+      const { token, user } = await apiRegister({
+        email,
+        password,
+        role,
+        fullName: profile?.fullName,
+        phone: profile?.phone,
+      });
+      setSession({ token });
       // Newly-registered users have no profile yet (needs onboarding).
       setState({ status: "authenticated", user, driver: null, investor: null });
       return user;
@@ -258,6 +279,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return updated;
   }, []);
 
+  const updateProfile = useCallback(
+    async (payload: {
+      email?: string;
+      fullName?: string;
+      phone?: string;
+      country?: string;
+      address?: string;
+    }) => {
+      const updated = await apiUpdateProfile(payload);
+      setState((prev) =>
+        prev.status === "authenticated" ? { ...prev, user: updated } : prev,
+      );
+      return updated;
+    },
+    [],
+  );
+
   const deleteAccount = useCallback(async () => {
     await apiDeleteAccount();
     clearSession();
@@ -296,6 +334,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       createDriverProfile,
       createInvestorProfile,
       updateEmail,
+      updateProfile,
       deleteAccount,
       linkWallet,
     };
@@ -308,6 +347,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     createDriverProfile,
     createInvestorProfile,
     updateEmail,
+    updateProfile,
     deleteAccount,
     linkWallet,
   ]);

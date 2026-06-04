@@ -107,21 +107,30 @@ export type User = {
   id: number;
   email: string;
   role: Role;
+  fullName?: string;
+  phone?: string;
+  country?: string;
+  address?: string;
+  /** Embedded EVM wallet auto-created on signup. */
+  walletAddress?: string;
+  /** Legacy Canton field — retained optional for back-compat with old screens. */
   canton_party_id?: string;
-  created_at: string;
+  created_at?: string;
 };
 
-export type LoginResponse = {
+export type AuthResponse = {
   token: string;
-  session_id: string;
+  user: User;
 };
 
 export function register(payload: {
   email: string;
   password: string;
   role: Role;
-}): Promise<User> {
-  return request<User>("/auth/register", {
+  fullName?: string;
+  phone?: string;
+}): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify(payload),
     skipAuth: true,
@@ -131,11 +140,40 @@ export function register(payload: {
 export function login(payload: {
   email: string;
   password: string;
-}): Promise<LoginResponse> {
-  return request<LoginResponse>("/auth/login", {
+}): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify(payload),
     skipAuth: true,
+  });
+}
+
+// =============================================================================
+// EVM wallet (Robinhood Chain) — live balances + crypto deposit
+// =============================================================================
+
+export type EvmBalance = {
+  address: string;
+  explorer: string;
+  /** Spendable USDC sitting in the wallet (decimal string, 6dp). */
+  walletUsdc: string;
+  /** USDC value held in the yield vault. */
+  vaultUsdc: string;
+  /** wallet + vault. */
+  totalUsdc: string;
+};
+
+export function getEvmBalance(): Promise<EvmBalance> {
+  return request<EvmBalance>("/wallet/balance");
+}
+
+/** Credit USDC to the user's wallet on-chain (crypto deposit). */
+export function cryptoDeposit(
+  amountUsdc: string,
+): Promise<{ txHash: string; explorer: string }> {
+  return request("/wallet/dev-fund", {
+    method: "POST",
+    body: JSON.stringify({ amountUsdc }),
   });
 }
 
@@ -147,7 +185,13 @@ export function logout(): Promise<void> {
   return request<void>("/auth/logout", { method: "POST" });
 }
 
-export function updateProfile(payload: { email: string }): Promise<User> {
+export function updateProfile(payload: {
+  email?: string;
+  fullName?: string;
+  phone?: string;
+  country?: string;
+  address?: string;
+}): Promise<User> {
   return request<User>("/auth/profile", {
     method: "PUT",
     body: JSON.stringify(payload),

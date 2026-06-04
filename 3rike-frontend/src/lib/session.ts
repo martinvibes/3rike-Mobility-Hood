@@ -17,19 +17,21 @@ const CANTON_PARTY_KEY = "3rike.cantonPartyId";
 
 export type StoredSession = {
   token: string;
-  sessionId: string;
+  // Legacy Canton backend returned a separate session id; the EVM backend is
+  // token-only, so this is optional now.
+  sessionId?: string;
 };
 
 export function getSession(): StoredSession | null {
   const token = localStorage.getItem(TOKEN_KEY);
-  const sessionId = localStorage.getItem(SESSION_ID_KEY);
-  if (!token || !sessionId) return null;
+  if (!token) return null;
+  const sessionId = localStorage.getItem(SESSION_ID_KEY) ?? undefined;
   return { token, sessionId };
 }
 
 export function setSession(s: StoredSession): void {
   localStorage.setItem(TOKEN_KEY, s.token);
-  localStorage.setItem(SESSION_ID_KEY, s.sessionId);
+  if (s.sessionId) localStorage.setItem(SESSION_ID_KEY, s.sessionId);
 }
 
 export function clearSession(): void {
