@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowLeft, Check, ChevronRight, Copy, ExternalLink } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
+import { ArrowDown, ArrowLeft, Check, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ApiError, cryptoDeposit } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import ReceiveCrypto from "@/components/receive-crypto";
 
 interface DepositModalProps {
     isOpen: boolean;
@@ -12,7 +11,7 @@ interface DepositModalProps {
     onDeposited?: () => void;
 }
 
-type View = "menu" | "amount-crypto" | "crypto" | "bank" | "success";
+type View = "menu" | "crypto" | "bank" | "success";
 
 export default function DepositModal({ isOpen, onClose, onDeposited }: DepositModalProps) {
     const { user } = useAuth();
@@ -20,19 +19,13 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
 
     const [isVisible, setIsVisible] = useState(false);
     const [currentView, setCurrentView] = useState<View>("menu");
-    const [amount, setAmount] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-    const [serverError, setServerError] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
-    const [lastTx, setLastTx] = useState<{ hash: string; explorer: string } | null>(null);
+    const [received, setReceived] = useState(0);
 
     useEffect(() => {
         if (isOpen) {
             setIsVisible(true);
             setCurrentView("menu");
-            setAmount("");
-            setServerError(null);
-            setLastTx(null);
+            setReceived(0);
         } else {
             const timer = setTimeout(() => setIsVisible(false), 300);
             return () => clearTimeout(timer);
@@ -45,37 +38,10 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
 
     if (!isVisible && !isOpen) return null;
 
-    const numericAmount = Number(amount);
-    const amountValid = !Number.isNaN(numericAmount) && numericAmount > 0;
-
-    const handleCopy = async () => {
-        if (!address) return;
-        try {
-            await navigator.clipboard.writeText(address);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch {
-            // ignore
-        }
-    };
-
-    const handleConfirmCrypto = async () => {
-        if (!amountValid) {
-            setServerError("Please enter a valid amount.");
-            return;
-        }
-        setSubmitting(true);
-        setServerError(null);
-        try {
-            const res = await cryptoDeposit(amount.trim());
-            setLastTx({ hash: res.txHash, explorer: res.explorer });
-            onDeposited?.();
-            setCurrentView("success");
-        } catch (err) {
-            setServerError(messageFor(err));
-        } finally {
-            setSubmitting(false);
-        }
+    const handleReceived = (amount: number) => {
+        setReceived(amount);
+        onDeposited?.();
+        setCurrentView("success");
     };
 
     // --- Views ---
@@ -94,7 +60,7 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
             <div className="w-full space-y-4">
                 <Button
                     variant="ghost"
-                    onClick={() => setCurrentView("amount-crypto")}
+                    onClick={() => setCurrentView("crypto")}
                     className="w-full h-auto py-4 flex items-center justify-between hover:bg-gray-50 rounded-2xl p-0 cursor-pointer"
                 >
                     <div className="flex items-center gap-4">
@@ -103,7 +69,7 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
                         </div>
                         <div className="text-left">
                             <h3 className="text-base font-light text-gray-900">Crypto</h3>
-                            <p className="text-xs text-gray-400 mt-0.5 font-normal">Deposit USDC to your wallet</p>
+                            <p className="text-xs text-gray-400 mt-0.5 font-normal">Receive USDC into your wallet</p>
                         </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300" />
@@ -129,101 +95,19 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
         </div>
     );
 
-    const renderAmountCrypto = () => (
+    const renderCrypto = () => (
         <div className="flex flex-col items-center w-full animate-in slide-in-from-right-10 duration-300">
-            <div className="w-full relative flex items-center justify-center mb-6">
+            <div className="w-full relative flex items-center justify-center mb-4">
                 <button
                     onClick={() => setCurrentView("menu")}
                     className="absolute left-0 p-2 text-gray-400 hover:text-gray-600 cursor-pointer"
                 >
                     <ArrowLeft size={20} />
                 </button>
-                <h2 className="text-xl font-bold text-gray-900">Enter Amount</h2>
+                <h2 className="text-xl font-bold text-gray-900">Deposit Crypto</h2>
             </div>
 
-            <p className="text-gray-400 text-xs text-center mb-6">
-                How much USDC are you depositing?
-            </p>
-
-            <div className="w-full bg-gray-50 rounded-2xl p-6 mb-6">
-                <label className="text-xs text-gray-400 font-medium block mb-2">Amount (USDC)</label>
-                <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-light text-gray-400">$</span>
-                    <input
-                        type="text"
-                        inputMode="decimal"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                        placeholder="0.00"
-                        className="flex-1 bg-transparent text-3xl font-bold text-gray-900 outline-none placeholder:text-gray-300"
-                    />
-                </div>
-            </div>
-
-            <Button
-                disabled={!amountValid}
-                onClick={() => setCurrentView("crypto")}
-                className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white rounded-xl text-base font-medium shadow-md shadow-green-100 disabled:bg-[#9fe0bb] disabled:cursor-not-allowed cursor-pointer"
-            >
-                Continue
-            </Button>
-        </div>
-    );
-
-    const renderCrypto = () => (
-        <div className="flex flex-col items-center w-full animate-in slide-in-from-right-10 duration-300">
-            <div className="w-full relative flex items-center justify-center mb-4">
-                <button
-                    onClick={() => setCurrentView("amount-crypto")}
-                    className="absolute left-0 p-2 text-gray-400 hover:text-gray-600 cursor-pointer"
-                >
-                    <ArrowLeft size={20} />
-                </button>
-                <h2 className="text-xl font-bold text-gray-900">Deposit ${amount || "0.00"}</h2>
-            </div>
-
-            <p className="text-gray-400 text-xs text-center mb-4">
-                Send USDC on Robinhood Chain to your wallet address below.
-            </p>
-
-            {/* Real QR of the user's wallet address */}
-            <div className="bg-white rounded-3xl border border-gray-100 p-5 shadow-sm mb-4">
-                {address ? (
-                    <QRCodeSVG
-                        value={address}
-                        size={196}
-                        level="M"
-                        marginSize={2}
-                        fgColor="#0A0A0A"
-                    />
-                ) : (
-                    <div className="w-49 h-49 bg-gray-100 rounded-xl" />
-                )}
-            </div>
-
-            <div className="w-full bg-gray-50 rounded-2xl p-3 mb-6 flex items-center gap-2">
-                <code className="flex-1 text-[11px] text-gray-600 font-mono break-all leading-relaxed">
-                    {address || "—"}
-                </code>
-                <button
-                    onClick={handleCopy}
-                    className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 text-[11px] font-medium text-gray-600 hover:bg-gray-100 cursor-pointer"
-                >
-                    {copied ? <><Check className="w-3 h-3 text-[#01C259]" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
-                </button>
-            </div>
-
-            {serverError && (
-                <p className="text-sm text-red-500 mb-4 text-center" role="alert">{serverError}</p>
-            )}
-
-            <Button
-                disabled={submitting}
-                className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-medium text-base rounded-xl shadow-none cursor-pointer disabled:opacity-60"
-                onClick={handleConfirmCrypto}
-            >
-                {submitting ? "Confirming on-chain…" : "Confirm deposit"}
-            </Button>
+            <ReceiveCrypto address={address} onReceived={handleReceived} />
         </div>
     );
 
@@ -261,20 +145,10 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
             <div className="w-20 h-20 rounded-full bg-[#01C259] flex items-center justify-center mb-6">
                 <Check className="w-10 h-10 text-white" strokeWidth={3} />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Deposit confirmed</h2>
-            <p className="text-gray-400 text-sm font-normal max-w-xs leading-relaxed mb-4">
-                ${formatAmount(numericAmount)} USDC was credited to your wallet on-chain.
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Deposit received</h2>
+            <p className="text-gray-400 text-sm font-normal max-w-xs leading-relaxed mb-8">
+                ${formatAmount(received)} USDC landed in your wallet.
             </p>
-            {lastTx && (
-                <a
-                    href={lastTx.explorer}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-[#01C259] hover:underline mb-8 font-mono"
-                >
-                    {lastTx.hash.slice(0, 10)}… view on explorer <ExternalLink className="w-3 h-3" />
-                </a>
-            )}
             <Button
                 onClick={onClose}
                 className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-medium text-base rounded-xl cursor-pointer"
@@ -297,7 +171,6 @@ export default function DepositModal({ isOpen, onClose, onDeposited }: DepositMo
                 <div className="mx-auto w-12 h-2 bg-gray-300 rounded-full mb-6" />
 
                 {currentView === "menu" && renderMenu()}
-                {currentView === "amount-crypto" && renderAmountCrypto()}
                 {currentView === "crypto" && renderCrypto()}
                 {currentView === "bank" && renderBank()}
                 {currentView === "success" && renderSuccess()}
@@ -311,20 +184,4 @@ function formatAmount(amount: number): string {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
-}
-
-function messageFor(err: unknown): string {
-    if (err instanceof ApiError) {
-        switch (err.code) {
-            case "timeout":
-                return "The server is waking up — please try again.";
-            case "network_error":
-                return "Couldn't reach the server. Check your connection.";
-            case "chain_error":
-                return "The deposit couldn't be confirmed on-chain. Try again.";
-            default:
-                return "Something went wrong recording your deposit.";
-        }
-    }
-    return "Something went wrong recording your deposit.";
 }

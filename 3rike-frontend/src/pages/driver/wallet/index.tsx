@@ -11,9 +11,10 @@ import {
   RefreshCw,
 } from "lucide-react";
 import MobileFrame from "@/components/ui/mobile-frame";
-import { ApiError, cryptoDeposit } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useWalletBalance } from "@/lib/use-wallet-balance";
+import ReceiveCrypto from "@/components/receive-crypto";
 import Skeleton from "@/components/ui/skeleton";
 
 export default function Wallet() {
@@ -31,10 +32,7 @@ export default function Wallet() {
 
   const [copied, setCopied] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [lastTx, setLastTx] = useState<{ hash: string; explorer: string } | null>(null);
+  const [justReceived, setJustReceived] = useState<number | null>(null);
 
   const handleCopy = async () => {
     if (!address) return;
@@ -47,27 +45,11 @@ export default function Wallet() {
     }
   };
 
-  const handleDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitError(null);
-    const clean = amount.trim();
-    if (!/^\d+(\.\d{1,6})?$/.test(clean) || Number(clean) <= 0) {
-      setSubmitError("Enter a valid USDC amount.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await cryptoDeposit(clean);
-      setLastTx({ hash: res.txHash, explorer: res.explorer });
-      setDepositOpen(false);
-      setAmount("");
-      // Give the node a beat, then refresh the on-chain balance.
-      setTimeout(() => void loadBalance(), 1500);
-    } catch (err) {
-      setSubmitError(messageFor(err));
-    } finally {
-      setSubmitting(false);
-    }
+  const handleReceived = (amount: number) => {
+    setDepositOpen(false);
+    setJustReceived(amount);
+    void loadBalance();
+    setTimeout(() => setJustReceived(null), 6000);
   };
 
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
@@ -119,6 +101,12 @@ export default function Wallet() {
             <p className="text-[11px] text-white/70 mt-2">Robinhood Chain · live on-chain balance</p>
           </div>
         </div>
+
+        {justReceived !== null && (
+          <div className="mb-3 flex items-center gap-2 bg-[#E9F8EE] text-[#067a3a] rounded-xl px-4 py-3 text-sm">
+            <Check className="w-4 h-4" /> Received ${formatUSDC(String(justReceived))} USDC
+          </div>
+        )}
 
         {balanceError && (
           <p className="text-xs text-red-500 text-center mb-3" role="alert">
@@ -177,80 +165,28 @@ export default function Wallet() {
 
         {/* Deposit CTA */}
         <Button
-          onClick={() => {
-            setSubmitError(null);
-            setDepositOpen(true);
-          }}
+          onClick={() => setDepositOpen(true)}
           className="h-12 bg-[#01C259] hover:bg-[#00a049] text-white rounded-xl font-medium cursor-pointer gap-2"
         >
           <ArrowDownToLine className="w-4 h-4" /> Deposit crypto (USDC)
         </Button>
-
-        {/* Last deposit receipt */}
-        {lastTx && (
-          <a
-            href={lastTx.explorer}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 flex items-center justify-between bg-[#E9F8EE] rounded-xl px-4 py-3 text-sm text-[#067a3a] hover:bg-[#dcf2e4]"
-          >
-            <span className="inline-flex items-center gap-2">
-              <Check className="w-4 h-4" /> Deposit confirmed on-chain
-            </span>
-            <span className="inline-flex items-center gap-1 font-mono text-xs">
-              {lastTx.hash.slice(0, 8)}… <ExternalLink className="w-3 h-3" />
-            </span>
-          </a>
-        )}
       </div>
 
-      {/* Deposit sheet */}
+      {/* Deposit (receive) sheet */}
       {depositOpen && (
         <div className="absolute inset-0 z-50 bg-black/40 flex items-end justify-center animate-in fade-in duration-200">
-          <form
-            onSubmit={handleDeposit}
-            className="w-full bg-white rounded-t-3xl p-6 pb-8 animate-in slide-in-from-bottom duration-300"
-          >
+          <div className="w-full bg-white rounded-t-3xl p-6 pb-8 animate-in slide-in-from-bottom duration-300">
             <div className="mx-auto w-12 h-2 bg-gray-300 rounded-full mb-6" />
-            <h3 className="text-xl font-bold text-gray-900 text-center mb-2">Deposit USDC</h3>
-            <p className="text-sm text-[#909090] text-center mb-6 px-2">
-              Credit USDC to your wallet on Robinhood Chain. Enter an amount.
-            </p>
-
-            <label className="text-xs text-[#909090] block mb-2">Amount (USDC)</label>
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              placeholder="100"
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50/50 outline-none focus:border-[#01C259] focus:bg-white transition-colors text-lg"
-            />
-
-            {submitError && (
-              <p className="text-sm text-red-500 text-center mt-3" role="alert">
-                {submitError}
-              </p>
-            )}
-
-            <div className="flex gap-3 mt-5">
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={submitting}
-                onClick={() => setDepositOpen(false)}
-                className="flex-1 h-12 rounded-xl border border-gray-200 text-gray-700 cursor-pointer"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={submitting || amount.trim().length === 0}
-                className="flex-1 h-12 rounded-xl bg-[#01C259] hover:bg-[#00a049] text-white font-medium cursor-pointer disabled:opacity-60"
-              >
-                {submitting ? "Depositing…" : "Deposit"}
-              </Button>
-            </div>
-          </form>
+            <h3 className="text-xl font-bold text-gray-900 text-center mb-4">Deposit USDC</h3>
+            <ReceiveCrypto address={address} onReceived={handleReceived} />
+            <button
+              type="button"
+              onClick={() => setDepositOpen(false)}
+              className="w-full mt-3 h-11 rounded-xl border border-gray-200 text-gray-600 text-sm cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
     </MobileFrame>
@@ -271,7 +207,6 @@ function messageFor(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "timeout") return "The server is waking up — please try again.";
     if (err.code === "network_error") return "Couldn't reach the server.";
-    if (err.code === "chain_error") return "The deposit couldn't be confirmed on-chain. Try again.";
   }
   return "Something went wrong. Please try again.";
 }
