@@ -193,6 +193,45 @@ export function withdrawCrypto(payload: {
   });
 }
 
+// =============================================================================
+// Bank withdrawal (Paycrest off-ramp: testnet USDC -> real ₦ via treasury)
+// =============================================================================
+
+export type Bank = { name: string; code: string };
+
+export function getBanks(): Promise<{ banks: Bank[] }> {
+  return request<{ banks: Bank[] }>("/payments/banks");
+}
+
+export function resolveBankAccount(
+  institution: string,
+  accountIdentifier: string,
+): Promise<{ accountName: string | null }> {
+  return request("/payments/resolve-account", {
+    method: "POST",
+    body: JSON.stringify({ institution, accountIdentifier }),
+  });
+}
+
+export function bankWithdrawQuote(
+  amountUsdc: string,
+): Promise<{ rate: string | null; ngn: string | null }> {
+  return request(`/payments/withdraw/quote?amountUsdc=${encodeURIComponent(amountUsdc)}`);
+}
+
+export function withdrawToBank(payload: {
+  amountUsdc: string;
+  institution: string;
+  accountIdentifier: string;
+  accountName: string;
+  pin: string;
+}): Promise<{ orderId: string; status: string; ngn: string }> {
+  return request("/payments/withdraw/bank", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function me(): Promise<User> {
   return request<User>("/auth/me");
 }

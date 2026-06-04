@@ -27,7 +27,8 @@ model User {
   encryptedKey  String   // AES-256-GCM encrypted private key
   createdAt     DateTime @default(now())
 
-  deposits Deposit[]
+  deposits      Deposit[]
+  paymentOrders PaymentOrder[]
 }
 
 // Records on/off-chain money movements for history + auditing.
@@ -40,4 +41,19 @@ model Deposit {
   txHash    String?
   status    String   @default("confirmed") // pending | confirmed | failed
   createdAt DateTime @default(now())
+}
+
+// Paycrest treasury-bridge orders (real ₦ <-> real USDC on Arbitrum One).
+model PaymentOrder {
+  id         Int      @id @default(autoincrement())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     Int
+  direction  String   // offramp (bank withdrawal) | onramp (bank deposit)
+  paycrestId String   @unique
+  amountUsdc String   // USDC moved through the treasury
+  amountNgn  String?  // fiat leg
+  status     String   @default("pending") // pending | settled | refunded | expired | failed
+  txHash     String?  // treasury -> Paycrest receiveAddress (offramp funding)
+  reference  String?
+  createdAt  DateTime @default(now())
 }
