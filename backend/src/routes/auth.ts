@@ -26,6 +26,7 @@ type UserRecord = {
   phone: string | null;
   country: string | null;
   address: string | null;
+  pinHash: string | null;
 };
 
 function publicUser(u: UserRecord) {
@@ -38,6 +39,7 @@ function publicUser(u: UserRecord) {
     phone: u.phone ?? undefined,
     country: u.country ?? undefined,
     address: u.address ?? undefined,
+    hasPin: !!u.pinHash,
   };
 }
 
@@ -115,6 +117,67 @@ router.put("/profile", requireAuth, async (req: AuthedRequest, res) => {
     data: parsed.data,
   });
   res.json(publicUser(user));
+});
+
+// Logout — JWT is stateless, so this is a no-op the client uses to clear state.
+router.post("/logout", (_req, res) => {
+  res.json({ ok: true });
+});
+
+// Change password.
+const passwordSchema = z.object({
+  old_password: z.string().min(1),
+  new_password: z.string().min(6),
+});
+
+router.put("/password", requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = passwordSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
+
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) return res.status(404).json({ error: "not_found" });
+  if (!(await bcrypt.compare(parsed.data.old_password, user.passwordHash))) {
+    return res.status(401).json({ error: "wrong_password" });
+  }
+
+  await prisma.user.update({
+    where: { id: req.userId },
+    data: { passwordHash: await bcrypt.hash(parsed.data.new_password, 10) },
+  });
+  res.json({ message: "password_updated" });
+});
+
+// Set or change the 4-digit payment PIN. old_pin required only if one is set.
+const pinSchema = z.object({
+  old_pin: z.string().regex(/^\d{4}$/).optional(),
+  new_pin: z.string().regex(/^\d{4}$/),
+});
+
+router.put("/pin", requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = pinSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
+
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) return res.status(404).json({ error: "not_found" });
+
+  if (user.pinHash) {
+    if (!parsed.data.old_pin || !(await bcrypt.compare(parsed.data.old_pin, user.pinHash))) {
+      return res.status(401).json({ error: "wrong_pin" });
+    }
+  }
+
+  await prisma.user.update({
+    where: { id: req.userId },
+    data: { pinHash: await bcrypt.hash(parsed.data.new_pin, 10) },
+  });
+  res.json({ message: "pin_updated" });
+});
+
+// Permanently delete the account.
+router.delete("/account", requireAuth, async (req: AuthedRequest, res) => {
+  await prisma.deposit.deleteMany({ where: { userId: req.userId } });
+  await prisma.user.delete({ where: { id: req.userId } });
+  res.json({ ok: true });
 });
 
 export default router;

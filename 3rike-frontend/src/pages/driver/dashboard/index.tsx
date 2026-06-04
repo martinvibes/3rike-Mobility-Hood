@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { ArrowUpRight, Plus, TrendingUp } from "lucide-react";
 import DepositModal from "../deposit";
-import WithdrawOptions from "../withdraw/options";
+import WithdrawModal from "../withdraw/modal";
 import BottomNav from "@/components/ui/bottom-nav";
 import Avatar from "@/components/ui/avatar";
 import Skeleton from "@/components/ui/skeleton";
@@ -394,9 +394,13 @@ export default function DriverDashboard() {
       />
 
       {/* Withdraw modal */}
-      <WithdrawOptions
+      <WithdrawModal
         isOpen={isWithdrawOpen}
         onClose={() => setIsWithdrawOpen(false)}
+        onWithdrawn={() => {
+          void refreshWallet();
+          void refreshSavings();
+        }}
       />
     </div>
   );

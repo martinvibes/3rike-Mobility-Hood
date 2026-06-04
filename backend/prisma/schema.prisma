@@ -21,6 +21,7 @@ model User {
   phone         String?
   country       String?
   address       String?
+  pinHash       String?  // hashed 4-digit payment PIN
   // Embedded EVM wallet auto-created on signup.
   walletAddress String   @unique
   encryptedKey  String   // AES-256-GCM encrypted private key

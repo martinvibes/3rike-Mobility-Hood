@@ -4,11 +4,13 @@ import {
   defineChain,
   http,
   formatUnits,
+  parseEther,
   parseUnits,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { config } from "../config.js";
 import { erc20Abi, vaultAbi } from "./abi.js";
+import { decrypt } from "./crypto.js";
 
 export const robinhoodTestnet = defineChain({
   id: config.chainId,
@@ -85,6 +87,48 @@ export async function mintUsdc(to: `0x${string}`, amount: string): Promise<strin
     address: config.usdcAddress,
     abi: erc20Abi,
     functionName: "mint",
+    args: [to, value],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
+}
+
+// Minimum gas the relayer tops a user wallet up to before it sends a tx.
+const MIN_GAS = parseEther("0.0003");
+const TOPUP_GAS = parseEther("0.0008");
+
+/**
+ * Withdraw USDC from a user's embedded wallet to an external address. The
+ * relayer sponsors gas (tops the wallet up with a little ETH if needed), then
+ * the user's own key signs the ERC-20 transfer. Returns the tx hash.
+ */
+export async function withdrawUsdc(
+  encryptedKey: string,
+  to: `0x${string}`,
+  amount: string,
+): Promise<string> {
+  const account = privateKeyToAccount(decrypt(encryptedKey) as `0x${string}`);
+
+  // Sponsor gas if the wallet can't cover the transfer.
+  const ethBal = await publicClient.getBalance({ address: account.address });
+  if (ethBal < MIN_GAS) {
+    const fund = await relayerClient.sendTransaction({
+      to: account.address,
+      value: TOPUP_GAS,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: fund });
+  }
+
+  const userClient = createWalletClient({
+    account,
+    chain: robinhoodTestnet,
+    transport: http(config.rpcUrl),
+  });
+  const value = parseUnits(amount, USDC_DECIMALS);
+  const hash = await userClient.writeContract({
+    address: config.usdcAddress,
+    abi: erc20Abi,
+    functionName: "transfer",
     args: [to, value],
   });
   await publicClient.waitForTransactionReceipt({ hash });

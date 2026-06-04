@@ -111,6 +111,8 @@ export type User = {
   phone?: string;
   country?: string;
   address?: string;
+  /** Whether a payment PIN has been set. */
+  hasPin?: boolean;
   /** Embedded EVM wallet auto-created on signup. */
   walletAddress?: string;
   /** Legacy Canton field — retained optional for back-compat with old screens. */
@@ -177,6 +179,17 @@ export function cryptoDeposit(
   });
 }
 
+/** Withdraw USDC from the user's wallet to an external address (crypto-out). */
+export function withdrawCrypto(payload: {
+  to: string;
+  amountUsdc: string;
+}): Promise<{ txHash: string; explorer: string }> {
+  return request("/wallet/withdraw-crypto", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function me(): Promise<User> {
   return request<User>("/auth/me");
 }
@@ -203,6 +216,17 @@ export function changePassword(payload: {
   new_password: string;
 }): Promise<{ message: string }> {
   return request<{ message: string }>("/auth/password", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Set or change the 4-digit payment PIN. old_pin is required only if one exists. */
+export function changePin(payload: {
+  old_pin?: string;
+  new_pin: string;
+}): Promise<{ message: string }> {
+  return request<{ message: string }>("/auth/pin", {
     method: "PUT",
     body: JSON.stringify(payload),
   });
