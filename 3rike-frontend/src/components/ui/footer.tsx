@@ -1,110 +1,71 @@
-import { useTranslation } from "react-i18next";
-import { FaTelegram } from "react-icons/fa";
-import { FaXTwitter } from "react-icons/fa6";
-
+import {
+  FaFacebookF,
+  FaTwitter,
+  FaInstagram,
+  FaLinkedinIn,
+} from "react-icons/fa";
 
 export default function Footer() {
-    const { t } = useTranslation();
-    return (
-        <footer className="bg-yellow-400 text-[#667185] pb-6 px-6 md:px-12 relative overflow-hidden">
-            {/* Footer Container */}
-            <div className="
-        relative 
-        py-16 
-        w-full mx-auto 
-        grid grid-cols-1 
-        lg:grid-cols-2 
-        gap-10 md:gap-16 lg:gap-32 
-        items-start
-    ">
+  return (
+    <footer className="bg-[#F5F5F0] px-6 md:px-[78px] pt-1 md:pt-16 pb-8 md:pb-10">
+      {/* Top section */}
+      <div className="flex flex-col sm:flex-row justify-between items-center md:gap-6 mb-6 md:mb-8">
+        {/* Logo */}
+        
+        <img
+          src="/new_3rike_logo.png"
+          alt="3riKE Logo"
+          className={`h-24 md:h-20 w-auto object-contain`}
+        />
 
-                {/* Watermark */}
+        {/* Social icons */}
+        <div className="flex items-center md:gap-3 gap-4.5">
+          <a
+            href="#"
+            className="md:w-8 md:h-8 w-10 h-10 rounded-full bg-[#3b5998] flex items-center justify-center text-white hover:opacity-80 transition"
+          >
+            <FaFacebookF size={16} />
+          </a>
+          <a
+            href="https://x.com/3rike_"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="md:w-8 md:h-8 w-10 h-10 rounded-full bg-[#1DA1F2] flex items-center justify-center text-white hover:opacity-80 transition"
+          >
+            <FaTwitter size={16} />
+          </a>
+          <a
+            href="https://www.instagram.com/3rike.ng/"
+            className="md:w-8 md:h-8 w-10 h-10 rounded-full bg-gradient-to-tr from-[#f9ce34] via-[#ee2a7b] to-[#6228d7] flex items-center justify-center text-white hover:opacity-80 transition"
+          >
+            <FaInstagram size={16} />
+          </a>
+          <a
+            href="https://www.linkedin.com/company/3rike/"
+            className="md:w-8 md:h-8 w-10 h-10 rounded-full bg-[#0077b5] flex items-center justify-center text-white hover:opacity-80 transition"
+          >
+            <FaLinkedinIn size={16} />
+          </a>
+        </div>
+      </div>
 
+      {/* Links */}
+      <div className="flex items-center justify-center md:items-start md:justify-start gap-6 md:gap-8 text-[#829E04] text-sm mb-5 md:mb-12">
+        <a href="/terms" className="hover:underline transition">
+          Terms of Service
+        </a>
+        <a href="/privacy-policy" className="hover:underline transition">
+          Privacy Policy
+        </a>
+      </div>
 
-                {/* Brand + Legal */}
-                <div className="relative z-10 space-y-4">
-                    <div className="flex items-center space-x-2">
-                        <img
-                            src="/logo.svg"
-                            alt="3rike logo"
-                            className="h-35 w-35 object-contain"
-                        />
-                    </div>
+      {/* Divider */}
+      <div className="border-t border-[#D9D9D9] mb-4 md:mb-8" />
 
-                    <ul className="flex flex-row space-x-6 text-gray-600 text-sm">
-                        <li>
-                            <a href="/privacy-policy" className="hover:text-black transition">
-                                {t("footer.policy")}
-                            </a>
-                        </li>
-                        <li>
-                            <a href="/terms" className="hover:text-black transition">
-                                {t("footer.terms")}
-                            </a>
-                        </li>
-                    </ul>
-                </div>
-
-                {/* Socials */}
-                <div className="relative z-10 flex flex-wrap gap-3 lg:justify-end">
-                    <a
-                        href="https://x.com/3rikeBot_"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 border border-gray-300 rounded-md hover:bg-gray-100 transition"
-                    >
-                        <FaXTwitter />
-                    </a>
-
-                    <a
-                        href="https://t.me/3riketrading"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 border border-gray-300 rounded-md hover:bg-gray-100 transition"
-                    >
-                        <FaTelegram />
-                    </a>
-
-                    {/*<a
-                        href="#"
-                        className="p-2 border border-gray-300 rounded-md hover:bg-gray-100 transition"
-                    >
-                        <FaLinkedinIn />
-                    </a>
-                    <a
-                        href="#"
-                        className="p-2 border border-gray-300 rounded-md hover:bg-gray-100 transition"
-                    >
-                        <FaInstagram />
-                    </a>
-                    <a
-                        href="#"
-                        className="p-2 border border-gray-300 rounded-md hover:bg-gray-100 transition"
-                    >
-                        <FaTiktok />
-                    </a> */}
-                </div>
-
-
-            </div>
-
-            {/* Bottom Bar */}
-            <div className="
-      max-w-7xl mx-auto 
-      border-t border-gray-200 
-      mt-12 pt-6 
-      flex flex-col md:flex-row 
-      justify-center 
-      items-center 
-      text-sm text-gray-600 
-      gap-4 
-      relative z-10
-  ">
-                <p>
-                    © {new Date().getFullYear()} {t("footer.company")}. {t("footer.rights")}
-                </p>
-            </div>
-        </footer>
-
-    );
+      {/* Copyright */}
+      <p className="text-center text-[#999999] text-sm">
+        © All {new Date().getFullYear()} copyright all rights reserved.
+      </p>
+    </footer>
+  );
 }

@@ -1,7 +1,7 @@
 import "./App.css";
 import { Routes, Route, BrowserRouter } from "react-router-dom";
 import Layout from "@/components/ui/layout";
-import { CreateAccountForm, ForgotPasswordEmailForm, ForgotPasswordPhoneForm, Landing, LoginForm, NoMatch, Onboarding, DriverDashboard, VerifyAccountForm, VerificationSuccess, VerificationFailed, VerificationFailedForm, LoanDashboard, LoanRequestSuccess, LoanNotification, SavingsOnboarding, SavingsDashboard, Loan, Savings, Verification, SavingsTargetDashboard, SavingsTargetForm, SavingsSummary, SavingsNotification, SavingsTargetSuccess, AiDashboard, DriverNotification, Withdraw, SetPinWithdraw, WithdrawBankDetails, WithdrawSendMoney, Settings, SettingsHome, SettingsProfile, PaymentSettings, ChangePaymentPin, WithdrawCryptoAsset, Investment, InvestmentHome, Own3rike, Own3rikeDetails, Welcome3riker, ThreeDetails, InvestmentPortfolio, ActiveLoan, EditEmail, ChangePassword, Sessions, Wallet } from "./pages";
+import { CreateAccountForm, ForgotPasswordEmailForm, ForgotPasswordPhoneForm, Landing, LoginForm, NoMatch, Onboarding, DriverDashboard, VerifyAccountForm, VerificationSuccess, VerificationFailed, VerificationFailedForm, LoanDashboard, LoanRequestSuccess, LoanNotification, SavingsOnboarding, SavingsDashboard, Loan, Savings, Verification, SavingsTargetDashboard, SavingsTargetForm, SavingsSummary, SavingsNotification, SavingsTargetSuccess, AiDashboard, DriverNotification, Withdraw, SetPinWithdraw, WithdrawBankDetails, WithdrawSendMoney, Settings, SettingsHome, SettingsProfile, PaymentSettings, ChangePaymentPin, WithdrawCryptoAsset, Investment, InvestmentHome, Own3rike, Own3rikeDetails, Welcome3riker, ThreeDetails, InvestmentPortfolio, ActiveLoan, EditEmail, ChangePassword, Sessions, Wallet, Waitlist } from "./pages";
 import SelectCryptoAsset from "./pages/driver/withdraw/crypto/select-crypto";
 import { AuthProvider } from "@/lib/auth";
 import RequireAuth from "@/lib/require-auth";
@@ -22,6 +22,7 @@ function App() {
           <Route path="/forgot-password-phone" element={<ForgotPasswordPhoneForm />} />
           <Route path="/forgot-password-email" element={<ForgotPasswordEmailForm />} />
           <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/waitlist" element={<Waitlist />} />
 
           {/* Shared layout (Navbar + Footer are inside Layout) */}
           <Route element={<Layout />}>
