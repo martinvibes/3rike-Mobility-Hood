@@ -232,6 +232,37 @@ export function withdrawToBank(payload: {
   });
 }
 
+// Bank deposit (Paycrest on-ramp: real ₦ -> USDC to treasury -> testnet USDC)
+export type ProviderAccount = {
+  institution: string;
+  accountIdentifier: string;
+  accountName: string;
+  amountToTransfer: string;
+  currency: string;
+  validUntil: string;
+};
+
+export function bankDepositQuote(
+  amountNgn: string,
+): Promise<{ rate: string | null; usdc: string | null }> {
+  return request(`/payments/deposit/quote?amountNgn=${encodeURIComponent(amountNgn)}`);
+}
+
+export function createBankDeposit(payload: {
+  amountNgn: string;
+  institution: string;
+  accountIdentifier: string;
+  accountName: string;
+}): Promise<{ orderId: string; amountUsdc: string; rate: string; providerAccount: ProviderAccount }> {
+  return request("/payments/deposit/bank", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function checkBankDeposit(
+  orderId: string,
+): Promise<{ status: string; creditedUsdc?: string }> {
+  return request("/payments/deposit/check", { method: "POST", body: JSON.stringify({ orderId }) });
+}
+
 export function me(): Promise<User> {
   return request<User>("/auth/me");
 }

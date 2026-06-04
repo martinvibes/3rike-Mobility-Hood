@@ -96,8 +96,10 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
 
     if (!isVisible && !isOpen) return null;
 
+    const MIN_USDC = 0.5;
     const cryptoValid = /^0x[a-fA-F0-9]{40}$/.test(to.trim()) && Number(amount) > 0 && Number(amount) <= spendable;
-    const bankValid = !!institution && accountNumber.length >= 10 && !!accountName && Number(bankAmount) > 0 && Number(bankAmount) <= spendable;
+    const bankBelowMin = Number(bankAmount) > 0 && Number(bankAmount) < MIN_USDC;
+    const bankValid = !!institution && accountNumber.length >= 10 && !!accountName && Number(bankAmount) >= MIN_USDC && Number(bankAmount) <= spendable;
 
     const goToPin = () => {
         setError(null); setPin(""); setView("pin");
@@ -208,7 +210,15 @@ export default function WithdrawModal({ isOpen, onClose, onWithdrawn }: Withdraw
                 <span className="text-2xl font-light text-gray-400">$</span>
                 <input inputMode="decimal" value={bankAmount} onChange={(e) => setBankAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" className="flex-1 bg-transparent text-2xl font-bold text-gray-900 outline-none placeholder:text-gray-300" />
             </div>
-            <p className="text-xs text-gray-400 mb-5">{ngn ? `≈ ₦${Number(ngn).toLocaleString()}` : " "}</p>
+            <p className="text-xs mb-5">
+                {bankBelowMin ? (
+                    <span className="text-red-500">Minimum withdrawal is $0.50.</span>
+                ) : ngn ? (
+                    <span className="text-gray-400">≈ ₦{Number(ngn).toLocaleString()} · min $0.50</span>
+                ) : (
+                    <span className="text-gray-400">Minimum $0.50</span>
+                )}
+            </p>
             {error && <p className="text-sm text-red-500 mb-4 text-center">{error}</p>}
             <Button disabled={!bankValid} onClick={goToPin} className="w-full h-14 bg-[#01C259] hover:bg-[#00a049] text-white font-medium text-base rounded-xl cursor-pointer disabled:bg-[#9fe0bb] disabled:cursor-not-allowed">Continue</Button>
         </div>
@@ -273,8 +283,10 @@ function Header({ title, onBack }: { title: string; onBack: () => void }) {
 function messageFor(err: unknown): string {
     if (err instanceof ApiError) {
         if (err.code === "wrong_pin") return "Incorrect PIN. Please try again.";
+        if (err.code === "below_minimum") return "Minimum withdrawal is $0.50.";
         if (err.code === "insufficient_funds") return "Not enough spendable balance.";
-        if (err.code === "invalid_account") return "Couldn't verify that bank account.";
+        if (err.code === "invalid_input") return "Please check the amount and account details.";
+        if (err.code === "invalid_account") return "Couldn't verify that bank account — check your bank and account number.";
         if (err.code === "treasury_insufficient") return "Bank payouts are temporarily unavailable. Try crypto, or try again later.";
         if (err.code === "treasury_not_configured") return "Bank payouts aren't enabled yet.";
         if (err.code === "rate_unavailable") return "Couldn't fetch the rate. Try again.";

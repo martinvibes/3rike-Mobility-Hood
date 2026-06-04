@@ -112,6 +112,81 @@ export async function paycrestGetOrder(id: string) {
   return data?.data;
 }
 
+// --- v2 (used for on-ramp: fiat -> crypto) ---
+async function pcV2(
+  path: string,
+  init?: RequestInit,
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const res = await fetch(`https://api.paycrest.io/v2${path}`, {
+    ...init,
+    headers: {
+      "API-Key": config.paycrestApiKey,
+      "Content-Type": "application/json",
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** On-ramp buy rate: NGN per 1 USDC (string). */
+export async function paycrestBuyRate(amount: string): Promise<string | null> {
+  const { ok, data } = await pcV2(`/rates/arbitrum-one/usdc/${amount}/ngn`);
+  return ok ? (data?.data?.buy?.rate ?? null) : null;
+}
+
+export type OnrampOrder = {
+  id: string;
+  amount: string; // USDC the treasury will receive
+  rate: string;
+  providerAccount: {
+    institution: string;
+    accountIdentifier: string;
+    accountName: string;
+    amountToTransfer: string; // NGN the user must pay
+    currency: string;
+    validUntil: string;
+  };
+};
+
+/**
+ * Create an on-ramp order (fiat -> crypto). The user pays providerAccount in
+ * NGN; Paycrest then delivers `amount` USDC to recipientAddress (the treasury).
+ */
+export async function paycrestCreateOnramp(params: {
+  amountNgn: string;
+  refundAccount: { institution: string; accountIdentifier: string; accountName: string };
+  recipientAddress: string;
+}): Promise<OnrampOrder> {
+  const { ok, data } = await pcV2(`/sender/orders`, {
+    method: "POST",
+    body: JSON.stringify({
+      amount: params.amountNgn,
+      amountIn: "fiat",
+      source: { type: "fiat", currency: "NGN", refundAccount: params.refundAccount },
+      destination: {
+        type: "crypto",
+        currency: "USDC",
+        recipient: { address: params.recipientAddress, network: "arbitrum-one" },
+      },
+    }),
+  });
+  if (!ok) {
+    const msg =
+      data?.data?.message ||
+      (Array.isArray(data?.data) ? data.data[0]?.message : undefined) ||
+      data?.message ||
+      "order_failed";
+    throw new Error(typeof msg === "string" ? msg : "order_failed");
+  }
+  return data.data as OnrampOrder;
+}
+
+export async function paycrestGetOrderV2(id: string) {
+  const { data } = await pcV2(`/sender/orders/${id}`);
+  return data?.data;
+}
+
 /** Verify a Paycrest webhook signature (HMAC-SHA256 of the raw body with the API Secret). */
 export function verifyPaycrestWebhook(rawBody: Buffer, signature: string | undefined): boolean {
   if (!signature || !config.paycrestApiSecret) return false;

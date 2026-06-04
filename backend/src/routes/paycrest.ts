@@ -11,6 +11,9 @@ import {
   paycrestInstitutions,
   paycrestVerifyAccount,
   paycrestCreateOfframp,
+  paycrestBuyRate,
+  paycrestCreateOnramp,
+  paycrestGetOrderV2,
   verifyPaycrestWebhook,
 } from "../lib/paycrest.js";
 import {
@@ -60,6 +63,7 @@ router.post("/withdraw/bank", requireAuth, async (req: AuthedRequest, res) => {
   if (!p.success) return res.status(400).json({ error: "invalid_input" });
   const { amountUsdc, institution, accountIdentifier, accountName, pin } = p.data;
 
+  if (Number(amountUsdc) < 0.5) return res.status(400).json({ error: "below_minimum" });
   if (!treasuryConfigured()) return res.status(503).json({ error: "treasury_not_configured" });
 
   const user = await prisma.user.findUnique({ where: { id: req.userId } });
@@ -106,9 +110,10 @@ router.post("/withdraw/bank", requireAuth, async (req: AuthedRequest, res) => {
     });
   } catch (err) {
     const msg = (err as Error).message;
+    if (/minimum|too small|less than|min /i.test(msg)) return res.status(400).json({ error: "below_minimum" });
     if (/account/i.test(msg)) return res.status(400).json({ error: "invalid_account" });
     console.error("paycrest order failed:", msg);
-    return res.status(502).json({ error: "order_failed" });
+    return res.status(502).json({ error: "order_failed", detail: msg.slice(0, 120) });
   }
 
   // Treasury must cover amount + fees before we debit the user.
@@ -152,6 +157,90 @@ router.post("/withdraw/bank", requireAuth, async (req: AuthedRequest, res) => {
   res.json({ orderId: order.id, status: "pending", ngn });
 });
 
+// On-ramp deposit quote: how much USDC for X NGN.
+router.get("/deposit/quote", requireAuth, async (req, res) => {
+  const amountNgn = String(req.query.amountNgn ?? "1000");
+  const rate = await paycrestBuyRate("1");
+  const usdc = rate ? (Number(amountNgn) / Number(rate)).toFixed(6) : null;
+  res.json({ rate, usdc });
+});
+
+// On-ramp deposit: create order -> return the virtual account the user pays NGN to.
+const depSchema = z.object({
+  amountNgn: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  institution: z.string().min(3),
+  accountIdentifier: z.string().min(5),
+  accountName: z.string().min(1),
+});
+
+router.post("/deposit/bank", requireAuth, async (req: AuthedRequest, res) => {
+  const p = depSchema.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: "invalid_input" });
+  if (!config.treasuryAddress) return res.status(503).json({ error: "treasury_not_configured" });
+
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) return res.status(404).json({ error: "not_found" });
+
+  let order;
+  try {
+    order = await paycrestCreateOnramp({
+      amountNgn: p.data.amountNgn,
+      refundAccount: {
+        institution: p.data.institution,
+        accountIdentifier: p.data.accountIdentifier,
+        accountName: p.data.accountName,
+      },
+      recipientAddress: config.treasuryAddress,
+    });
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (/minimum|too small|less than|min /i.test(msg)) return res.status(400).json({ error: "below_minimum" });
+    if (/account/i.test(msg)) return res.status(400).json({ error: "invalid_account" });
+    console.error("onramp order failed:", msg);
+    return res.status(502).json({ error: "order_failed", detail: msg.slice(0, 120) });
+  }
+
+  await prisma.paymentOrder.create({
+    data: {
+      userId: user.id,
+      direction: "onramp",
+      paycrestId: String(order.id),
+      amountUsdc: order.amount,
+      amountNgn: p.data.amountNgn,
+      status: "pending",
+    },
+  });
+
+  res.json({
+    orderId: order.id,
+    amountUsdc: order.amount,
+    rate: order.rate,
+    providerAccount: order.providerAccount,
+  });
+});
+
+// Poll the on-ramp order; once Paycrest settles, credit the user's testnet USDC.
+router.post("/deposit/check", requireAuth, async (req: AuthedRequest, res) => {
+  const p = z.object({ orderId: z.string() }).safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: "invalid_input" });
+
+  const order = await prisma.paymentOrder.findUnique({ where: { paycrestId: p.data.orderId } });
+  if (!order || order.userId !== req.userId) return res.status(404).json({ error: "not_found" });
+  if (order.status === "settled") {
+    return res.json({ status: "settled", creditedUsdc: order.amountUsdc, alreadyCredited: true });
+  }
+
+  const pc = await paycrestGetOrderV2(p.data.orderId);
+  const st = pc?.status;
+  if (st === "settled" || st === "fulfilled" || st === "validated") {
+    const user = await prisma.user.findUnique({ where: { id: order.userId } });
+    if (user) await mintUsdc(user.walletAddress as `0x${string}`, order.amountUsdc).catch(() => {});
+    await prisma.paymentOrder.update({ where: { id: order.id }, data: { status: "settled" } });
+    return res.json({ status: "settled", creditedUsdc: order.amountUsdc });
+  }
+  res.json({ status: st ?? "pending" });
+});
+
 // Paycrest webhook — verifies HMAC, updates order, re-credits on failed off-ramp.
 router.post("/webhook", async (req: any, res) => {
   const sig = req.headers["x-paycrest-signature"] as string | undefined;
@@ -169,7 +258,14 @@ router.post("/webhook", async (req: any, res) => {
   const status = event.split(".")[1] || data.status;
 
   if (status === "settled" || status === "validated") {
-    await prisma.paymentOrder.update({ where: { id: order.id }, data: { status: "settled" } });
+    if (order.status !== "settled") {
+      // On-ramp completed → credit the user's testnet USDC.
+      if (order.direction === "onramp") {
+        const user = await prisma.user.findUnique({ where: { id: order.userId } });
+        if (user) await mintUsdc(user.walletAddress as `0x${string}`, order.amountUsdc).catch(() => {});
+      }
+      await prisma.paymentOrder.update({ where: { id: order.id }, data: { status: "settled" } });
+    }
   } else if (status === "refunded" || status === "expired") {
     await prisma.paymentOrder.update({ where: { id: order.id }, data: { status } });
     // Off-ramp failed after we debited the user → re-credit their testnet balance.
