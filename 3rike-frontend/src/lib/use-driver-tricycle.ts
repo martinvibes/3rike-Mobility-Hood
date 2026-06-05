@@ -1,40 +1,24 @@
-// useDriverTricycle: locates the tricycle assigned to the current driver.
+// useDriverTricycle: the tricycle assigned to the current driver.
 //
-// The backend has no /api/drivers/{id}/tricycle endpoint, so we list all
-// tricycles and filter client-side. Returns null when the driver hasn't been
-// assigned one yet.
+// The current (EVM) backend has no driver↔tricycle assignment — the on-chain
+// tricycles are *investable assets*, not a driver's own vehicle. Driver
+// financing (assignment, weekly repayments, credit score) returns with its own
+// backend; until then there's no assigned vehicle to surface, so this resolves
+// to null and dependent screens fall back to their placeholders.
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, listTricycles, type Tricycle } from "./api";
-import { useAuth } from "./auth";
+import { type ApiError, type Tricycle } from "./api";
 
 export function useDriverTricycle() {
-  const { driver } = useAuth();
   const [tricycle, setTricycle] = useState<Tricycle | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<ApiError | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!driver) {
-      setTricycle(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const all = await listTricycles();
-      const mine = all.find((t) => t.driver_id === driver.id) ?? null;
-      setTricycle(mine);
-    } catch (err) {
-      setError(err instanceof ApiError ? err : new ApiError(0, "unknown"));
-    } finally {
-      setLoading(false);
-    }
-  }, [driver]);
+    setTricycle(null);
+  }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { tricycle, loading, error, refresh };
+  return { tricycle, loading: false, error: null as ApiError | null, refresh };
 }

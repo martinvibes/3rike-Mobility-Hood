@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
@@ -6,68 +6,66 @@ import MobileFrame from "@/components/ui/mobile-frame";
 import Skeleton from "@/components/ui/skeleton";
 import {
   ApiError,
-  getTricycle,
-  listInvestments,
-  type Fraction,
-  type Tricycle,
+  claimYield,
+  getPortfolio,
+  type Portfolio,
 } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-
-type Row = {
-  fraction: Fraction;
-  tricycle: Tricycle | null;
-};
 
 export default function InvestmentPortfolio() {
   const navigate = useNavigate();
-  const { investor } = useAuth();
 
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setPortfolio(await getPortfolio());
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setPortfolio({ holdings: [], totals: { investedValueUsdc: "0", pendingYieldUsdc: "0", tricycles: 0 } });
+      } else {
+        setError("Couldn't load your investments. Please try again.");
+        setPortfolio({ holdings: [], totals: { investedValueUsdc: "0", pendingYieldUsdc: "0", tricycles: 0 } });
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!investor) {
-      setRows([]);
-      return;
-    }
-    setError(null);
-    (async () => {
-      try {
-        const fractions = await listInvestments(investor.id);
-        // Hydrate each fraction with its tricycle. Failures are non-fatal:
-        // the row just shows "Tricycle #N" instead of make/model.
-        const hydrated = await Promise.all(
-          fractions.map(async (f) => {
-            try {
-              const tricycle = await getTricycle(f.tricycle_id);
-              return { fraction: f, tricycle };
-            } catch {
-              return { fraction: f, tricycle: null };
-            }
-          }),
-        );
-        if (!cancelled) setRows(hydrated);
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) {
-          setRows([]);
-        } else {
-          setError("Couldn't load your investments. Please try again.");
-          setRows([]);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [investor]);
+    void load();
+  }, [load]);
 
-  const totalUnits = rows?.reduce((sum, r) => sum + r.fraction.units, 0) ?? 0;
-  const totalInvested = rows?.reduce(
-    (sum, r) => sum + r.fraction.units * r.fraction.price_per_unit,
+  const handleClaim = async (tricycleId: number) => {
+    setClaiming(tricycleId);
+    setToast(null);
+    try {
+      const res = await claimYield(tricycleId);
+      setToast(`Claimed $${res.amountUsdc} USDC to your wallet`);
+      await load();
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : "";
+      setToast(
+        code === "nothing_to_claim"
+          ? "No yield to claim yet."
+          : "Couldn't claim right now. Please try again.",
+      );
+    } finally {
+      setClaiming(null);
+    }
+  };
+
+  const holdings = portfolio?.holdings ?? null;
+  const totals = portfolio?.totals;
+
+  // Projected (indicative) earnings from each asset's APR — what they could
+  // earn, distinct from the actual claimable yield already accrued on-chain.
+  const estAnnual = (holdings ?? []).reduce(
+    (sum, h) => sum + Number(h.valueUsdc) * (h.projectedApr / 100),
     0,
-  ) ?? 0;
+  );
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
     <MobileFrame innerClassName="px-5 py-6 flex flex-col">
@@ -86,22 +84,46 @@ export default function InvestmentPortfolio() {
 
       {/* Summary card */}
       <div className="bg-[#F2FBF5] rounded-2xl p-5 mb-6">
-        <p className="text-xs text-[#909090] mb-1">Total invested</p>
+        <p className="text-xs text-[#909090] mb-1">Portfolio value</p>
         <p className="text-3xl font-bold text-gray-900 mb-3">
-          ${totalInvested.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          ${totals ? Number(totals.investedValueUsdc).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0"}
         </p>
         <div className="flex items-center justify-between text-xs text-[#909090]">
           <span>
-            <span className="font-semibold text-gray-700">{rows?.length ?? 0}</span> tricycles
+            <span className="font-semibold text-gray-700">{totals?.tricycles ?? 0}</span> tricycles
           </span>
           <span>
-            <span className="font-semibold text-gray-700">{totalUnits}</span> total units
+            <span className="font-semibold text-[#01C259]">
+              ${totals ? fmt(Number(totals.pendingYieldUsdc)) : "0"}
+            </span>{" "}
+            claimable now
           </span>
         </div>
+
+        {/* Projected earnings (indicative, from each asset's APR) */}
+        {holdings !== null && holdings.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-[#D4F0DE] flex items-end justify-between">
+            <div>
+              <p className="text-[11px] text-[#909090]">Projected earnings</p>
+              <p className="text-lg font-bold text-[#01C259] leading-tight">
+                ~${fmt(estAnnual)}<span className="text-xs font-medium text-[#909090]">/yr</span>
+              </p>
+            </div>
+            <p className="text-[11px] text-[#909090] text-right">
+              ≈ ${fmt(estAnnual / 12)}/mo · ${fmt(estAnnual / 52)}/wk
+            </p>
+          </div>
+        )}
       </div>
 
+      {toast && (
+        <div className="mb-4 text-center text-sm text-[#01C259] bg-[#E9F8EE] rounded-xl py-2 px-3">
+          {toast}
+        </div>
+      )}
+
       {/* List */}
-      {rows === null && (
+      {holdings === null && (
         <div className="space-y-3">
           {[0, 1, 2].map((i) => (
             <div
@@ -122,13 +144,13 @@ export default function InvestmentPortfolio() {
         </div>
       )}
 
-      {rows !== null && rows.length === 0 && (
+      {holdings !== null && holdings.length === 0 && (
         <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
           <p className="text-base font-semibold text-gray-700 mb-1">
             No investments yet
           </p>
           <p className="text-xs text-[#909090] mb-6">
-            {error ?? "Browse the marketplace and buy your first fraction to start earning weekly yields."}
+            {error ?? "Browse the marketplace and buy your first shares to start earning yield."}
           </p>
           <Button
             onClick={() => navigate("/driver/investment")}
@@ -139,38 +161,66 @@ export default function InvestmentPortfolio() {
         </div>
       )}
 
-      {rows !== null && rows.length > 0 && (
+      {holdings !== null && holdings.length > 0 && (
         <div className="space-y-3">
-          {rows.map(({ fraction, tricycle }) => (
-            <div
-              key={fraction.id}
-              className="bg-white border border-gray-100 rounded-2xl p-4 flex items-center gap-4"
-            >
-              <div className="w-12 h-12 rounded-xl bg-[#F2FBF5] flex items-center justify-center shrink-0">
-                <img
-                  src={tricycle?.is_ev ? "/small-tricycle2.svg" : "/small-tricycle.svg"}
-                  alt="tricycle"
-                  className="w-9 h-9 object-contain"
-                />
+          {holdings.map((h) => {
+            const pending = Number(h.pendingYield);
+            return (
+              <div
+                key={h.id}
+                className="bg-white border border-gray-100 rounded-2xl p-4"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-[#F2FBF5] flex items-center justify-center shrink-0">
+                    <img
+                      src="/small-tricycle2.svg"
+                      alt="tricycle"
+                      className="w-9 h-9 object-contain"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {h.make} {h.model}
+                    </p>
+                    <p className="text-xs text-[#909090]">
+                      {h.shares} {h.shares === 1 ? "share" : "shares"} · {h.ownershipPct}% owned
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-gray-900">
+                      ${Number(h.valueUsdc).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-[10px] text-[#909090]">value</p>
+                  </div>
+                </div>
+
+                {/* Projected earnings for this asset */}
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
+                  <p className="text-xs text-[#909090]">Projected ({h.projectedApr}% APR)</p>
+                  <p className="text-xs font-semibold text-gray-700">
+                    ~${fmt(Number(h.valueUsdc) * (h.projectedApr / 100))}/yr
+                  </p>
+                </div>
+
+                {/* Actual claimable yield */}
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-[#909090]">
+                    Yield earned:{" "}
+                    <span className={pending > 0 ? "text-[#01C259] font-semibold" : "text-gray-700 font-medium"}>
+                      ${fmt(Number(h.pendingYield))}
+                    </span>
+                  </p>
+                  <Button
+                    onClick={() => handleClaim(h.id)}
+                    disabled={pending <= 0 || claiming === h.id}
+                    className="h-8 px-4 bg-[#01C259] hover:bg-[#00a049] text-white rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {claiming === h.id ? "Claiming…" : "Claim"}
+                  </Button>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">
-                  {tricycle ? `${tricycle.make} ${tricycle.model}` : `Tricycle #${fraction.tricycle_id}`}
-                  {tricycle?.is_ev && <span className="ml-1 text-[10px] text-[#01C259]">EV</span>}
-                </p>
-                <p className="text-xs text-[#909090]">
-                  {fraction.units} {fraction.units === 1 ? "unit" : "units"} · $
-                  {fraction.price_per_unit.toLocaleString(undefined, { maximumFractionDigits: 2 })} each
-                </p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className="text-sm font-bold text-gray-900">
-                  ${(fraction.units * fraction.price_per_unit).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-[10px] text-[#909090]">invested</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </MobileFrame>

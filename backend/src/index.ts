@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import authRoutes from "./routes/auth.js";
 import walletRoutes from "./routes/wallet.js";
 import paycrestRoutes from "./routes/paycrest.js";
+import investmentRoutes from "./routes/investment.js";
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.get("/health", (_req, res) => {
 app.use("/auth", authRoutes);
 app.use("/wallet", walletRoutes);
 app.use("/payments", paycrestRoutes);
+app.use("/investment", investmentRoutes);
 
 app.listen(config.port, () => {
   console.log(`3rike backend listening on :${config.port} (chain ${config.chainId})`);

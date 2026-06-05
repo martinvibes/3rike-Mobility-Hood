@@ -63,8 +63,8 @@ export default function ThreeDetails() {
 
   // Derived from real data when available; falls back to placeholders.
   const weeklyPayment = useMemo(() => {
-    if (tricycle && tricycle.price_usd > 0) {
-      return Math.round((tricycle.price_usd / TOTAL_WEEKS) * 100) / 100;
+    if (tricycle && tricycle.priceUsd > 0) {
+      return Math.round((tricycle.priceUsd / TOTAL_WEEKS) * 100) / 100;
     }
     return 65; // legacy placeholder
   }, [tricycle]);

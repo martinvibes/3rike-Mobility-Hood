@@ -20,6 +20,12 @@ export const config = {
   vaultAddress: (process.env.VAULT_ADDRESS || undefined) as `0x${string}` | undefined,
   relayerPrivateKey: required("RELAYER_PRIVATE_KEY") as `0x${string}`,
 
+  // --- Investment / fractional ownership (Robinhood testnet) ---
+  tricycleNftAddress: (process.env.TRICYCLE_NFT_ADDRESS ??
+    "0xB590BA8f1319924a29535c9B985E5f5afC80a710") as `0x${string}`,
+  investmentAddress: (process.env.INVESTMENT_ADDRESS ??
+    "0x250f1df17DA6d626BBcDB5B73c079e50B7CA0597") as `0x${string}`,
+
   // --- Paycrest treasury-bridge (real ₦ <-> real USDC on Arbitrum One mainnet) ---
   arbitrumRpcUrl: process.env.ARBITRUM_RPC_URL ?? "https://arb1.arbitrum.io/rpc",
   arbitrumUsdc: (process.env.ARBITRUM_USDC ??

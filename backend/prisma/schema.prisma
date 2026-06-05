@@ -29,6 +29,7 @@ model User {
 
   deposits      Deposit[]
   paymentOrders PaymentOrder[]
+  investments   Investment[]
 }
 
 // Records on/off-chain money movements for history + auditing.
@@ -56,4 +57,20 @@ model PaymentOrder {
   txHash     String?  // treasury -> Paycrest receiveAddress (offramp funding)
   reference  String?
   createdAt  DateTime @default(now())
+}
+
+// History of fractional-investment actions. Ownership + yield live on-chain
+// (source of truth); this is a fast, queryable log for receipts and activity
+// feeds without scanning event logs.
+model Investment {
+  id          Int      @id @default(autoincrement())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      Int
+  tricycleId  Int      // on-chain TricycleNFT tokenId
+  vehicleId   String   // human fleet id (e.g. RDB-001) at time of action
+  action      String   // invest | claim
+  shares      String?  // shares bought (invest only)
+  amountUsdc  String   // cost (invest) or yield claimed (claim), decimal 6dp
+  txHash      String
+  createdAt   DateTime @default(now())
 }

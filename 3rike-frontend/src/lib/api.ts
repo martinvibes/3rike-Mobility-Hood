@@ -426,83 +426,114 @@ export function getInvestor(id: number): Promise<Investor> {
 }
 
 // =============================================================================
-// Tricycles
+// Investment — fractional ownership (real on-chain USDC + ERC-1155 shares)
 // =============================================================================
-
-export type TricycleStatus =
-  | "available"
-  | "financing"
-  | "owned"
-  | "tokenized"
-  | "fractionalized";
 
 export type Tricycle = {
   id: number;
-  driver_id: number;
+  vehicleId: string;
   make: string;
   model: string;
-  is_ev: boolean;
-  price_usd: number;
-  status: TricycleStatus;
-  contract_id: string;
-  total_fractions: number;
-  created_at: string;
+  isEV: boolean;
+  priceUsd: number;
+  rangeKm: number;
+  image: string;
+  location: string;
+  description: string;
+  projectedApr: number;
+  weeklyRepayment: number; // USD the rider pays per week
+  pricePerShare: string; // USDC, decimal string
+  totalShares: number;
+  sharesSold: number;
+  sharesAvailable: number;
+  fundedPct: number; // 0..100
+  active: boolean;
 };
 
-export function listTricycles(): Promise<Tricycle[]> {
-  return request<Tricycle[]>("/api/tricycles");
+export async function listTricycles(): Promise<Tricycle[]> {
+  const { tricycles } = await request<{ tricycles: Tricycle[] }>("/investment/tricycles");
+  return tricycles;
 }
 
 export function getTricycle(id: number): Promise<Tricycle> {
-  return request<Tricycle>(`/api/tricycles/${id}`);
+  return request<Tricycle>(`/investment/tricycles/${id}`);
 }
 
-// =============================================================================
-// Fractions (user purchases)
-// =============================================================================
-
-export type Fraction = {
-  id: number;
-  tricycle_id: number;
-  investor_id: number;
-  units: number;
-  price_per_unit: number;
-  created_at: string;
+export type InvestResult = {
+  txHash: string;
+  explorer: string;
+  costUsdc: string;
+  shares: number;
 };
 
 /**
- * Purchase fractional ownership in a tricycle. Backend lazily creates an
- * investor profile for the caller if they don't have one.
+ * Buy `shares` fractions of a tricycle. Moves real USDC from the user's
+ * embedded wallet on-chain (gas sponsored by the platform) and mints
+ * ERC-1155 shares to them.
  */
-export function buyFraction(payload: {
-  tricycle_id: number;
-  units: number;
-}): Promise<Fraction> {
-  return request<Fraction>("/api/fractions", {
+export function invest(payload: {
+  tricycleId: number;
+  shares: number;
+}): Promise<InvestResult> {
+  return request<InvestResult>("/investment/invest", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export function listInvestments(investorId: number): Promise<Fraction[]> {
-  return request<Fraction[]>(`/api/investors/${investorId}/investments`);
-}
-
-// =============================================================================
-// Yield (investor earnings)
-// =============================================================================
-
-export type YieldPayout = {
+export type Holding = {
   id: number;
-  investor_id: number;
-  fraction_id: number;
-  amount_usdc: number;
-  week_number: number;
-  created_at: string;
+  vehicleId: string;
+  make: string;
+  model: string;
+  image: string;
+  shares: number;
+  ownershipPct: number;
+  valueUsdc: string;
+  pendingYield: string;
+  projectedApr: number; // indicative annual yield %
 };
 
-export function listYieldPayouts(investorId: number): Promise<YieldPayout[]> {
-  return request<YieldPayout[]>(`/api/yield/investor/${investorId}`);
+export type Portfolio = {
+  holdings: Holding[];
+  totals: {
+    investedValueUsdc: string;
+    pendingYieldUsdc: string;
+    tricycles: number;
+  };
+};
+
+export function getPortfolio(): Promise<Portfolio> {
+  return request<Portfolio>("/investment/portfolio");
+}
+
+export type ClaimResult = {
+  txHash: string;
+  explorer: string;
+  amountUsdc: string;
+};
+
+export function claimYield(tricycleId: number): Promise<ClaimResult> {
+  return request<ClaimResult>("/investment/claim-yield", {
+    method: "POST",
+    body: JSON.stringify({ tricycleId }),
+  });
+}
+
+export type InvestmentActivity = {
+  id: number;
+  tricycleId: number;
+  vehicleId: string;
+  action: "invest" | "claim";
+  shares: string | null;
+  amountUsdc: string;
+  txHash: string;
+  createdAt: string;
+};
+
+export async function listInvestmentActivity(): Promise<InvestmentActivity[]> {
+  const { activity } = await request<{ activity: InvestmentActivity[] }>("/investment/activity");
+  return activity;
 }
 
 // =============================================================================

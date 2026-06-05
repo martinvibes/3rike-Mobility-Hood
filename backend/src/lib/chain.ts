@@ -40,6 +40,21 @@ export const relayerClient = createWalletClient({
 
 const USDC_DECIMALS = 6;
 
+/**
+ * Wait for a tx receipt with settings tuned for the Robinhood testnet, whose
+ * RPC can be slow/flaky. Without this, viem's default timeout can fire on a tx
+ * that actually lands — making a successful write look like a failure (and
+ * risking a double-submit on retry).
+ */
+export function confirm(hash: `0x${string}`) {
+  return publicClient.waitForTransactionReceipt({
+    hash,
+    timeout: 120_000,
+    pollingInterval: 2_000,
+    retryCount: 10,
+  });
+}
+
 export function explorerTx(hash: string): string {
   return `${robinhoodTestnet.blockExplorers.default.url}/tx/${hash}`;
 }
