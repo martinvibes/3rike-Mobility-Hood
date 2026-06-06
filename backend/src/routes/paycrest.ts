@@ -24,6 +24,13 @@ import {
 
 const router = Router();
 
+// Live USD->NGN rate (NGN per 1 USDC). No minimum — used for display toggles
+// (e.g. showing a balance in Naira). Public; cached client-side.
+router.get("/rate", async (_req, res) => {
+  const rate = await paycrestRate("usdc", "1", "ngn");
+  res.json({ rate, ngnPerUsdc: rate ? Number(rate) : null });
+});
+
 // List NGN banks (institution codes for the withdrawal form).
 router.get("/banks", requireAuth, async (_req, res) => {
   const banks = await paycrestInstitutions("NGN");
@@ -140,7 +147,7 @@ router.post("/withdraw/bank", requireAuth, async (req: AuthedRequest, res) => {
     return res.status(502).json({ error: "treasury_send_failed" });
   }
 
-  const ngn = (Number(rate) * Number(amountUsdc)).toFixed(2);
+  const ngn = (Number(order.rate ?? rate) * Number(amountUsdc)).toFixed(2);
   await prisma.paymentOrder.create({
     data: {
       userId: user.id,

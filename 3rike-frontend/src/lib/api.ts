@@ -219,6 +219,11 @@ export function bankWithdrawQuote(
   return request(`/payments/withdraw/quote?amountUsdc=${encodeURIComponent(amountUsdc)}`);
 }
 
+// Live USD->NGN rate (NGN per 1 USDC) for display toggles. No minimum.
+export function usdToNgnRate(): Promise<{ rate: string | null; ngnPerUsdc: number | null }> {
+  return request("/payments/rate");
+}
+
 export function withdrawToBank(payload: {
   amountUsdc: string;
   institution: string;

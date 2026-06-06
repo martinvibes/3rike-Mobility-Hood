@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth";
 import { useSavings } from "@/lib/use-savings";
 import { useEarnings } from "@/lib/use-earnings";
 import { useWalletBalance } from "@/lib/use-wallet-balance";
+import { usdToNgnRate } from "@/lib/api";
 
 // Local UX states layered on top of the backend driver record:
 //   - not_started: no driver profile yet → CTA to start KYC
@@ -39,6 +40,23 @@ export default function DriverDashboard() {
   // State to control the modals
   const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+
+  // Wallet-balance currency toggle: USD (USDC) <-> Naira equivalent.
+  const [showNgn, setShowNgn] = useState(false);
+  const [ngnRate, setNgnRate] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    usdToNgnRate()
+      .then((r) => {
+        if (!cancelled) setNgnRate(r.ngnPerUsdc);
+      })
+      .catch(() => {
+        /* leave null — toggle just stays on USD */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // First-run "How 3rike works" overlay — initialized from localStorage so
   // returning users don't re-see it.
   const [howItWorksOpen, setHowItWorksOpen] = useState(() => shouldShowHowItWorks());
@@ -154,10 +172,21 @@ export default function DriverDashboard() {
                     <Skeleton className="h-10 w-40 bg-white/20" />
                   ) : (
                     <h1 className="text-4xl font-bold">
-                      $ {formatCC(walletBalance?.totalUsdc)}
-                      <span className="text-base font-light text-white/80 ml-1.5 align-middle">
-                        USDC
-                      </span>
+                      {showNgn && ngnRate != null ? (
+                        <>
+                          ₦ {formatNgn(Number(walletBalance?.totalUsdc ?? 0) * ngnRate)}
+                          <span className="text-base font-light text-white/80 ml-1.5 align-middle">
+                            NGN
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          $ {formatCC(walletBalance?.totalUsdc)}
+                          <span className="text-base font-light text-white/80 ml-1.5 align-middle">
+                            USDC
+                          </span>
+                        </>
+                      )}
                     </h1>
                   )}
                 </div>
@@ -185,6 +214,26 @@ export default function DriverDashboard() {
                 </Button>
               </div>
             </div>
+
+            {/* USD <-> Naira toggle (vertical) */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowNgn((v) => !v);
+              }}
+              disabled={ngnRate == null}
+              aria-label={showNgn ? "Show balance in USD" : "Show balance in Naira"}
+              title={showNgn ? "Showing Naira — tap for USD" : "Tap to show Naira"}
+              className="absolute right-5 top-8 z-20 w-8 h-14 mt-1.5 rounded-full bg-black/15 border border-white/25 disabled:opacity-40 cursor-pointer"
+            >
+              <span
+                className="absolute left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-white text-[#00C258] flex items-center justify-center text-xs font-bold transition-all duration-200"
+                style={{ top: showNgn ? "calc(100% - 1.625rem)" : "0.125rem" }}
+              >
+                {showNgn ? "₦" : "$"}
+              </span>
+            </button>
           </div>
 
           {/* 2. STATS ROW */}
@@ -445,4 +494,10 @@ function formatCC(raw?: string): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+// Naira equivalent — whole-naira with thousands separators (₦ rarely shows kobo).
+function formatNgn(amount: number): string {
+  if (!Number.isFinite(amount)) return "—";
+  return amount.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }

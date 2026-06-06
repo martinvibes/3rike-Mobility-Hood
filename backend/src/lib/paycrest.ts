@@ -70,6 +70,7 @@ export type OfframpOrder = {
   senderFee: string;
   transactionFee: string;
   reference?: string;
+  rate?: string; // the rate the order was actually created at
 };
 
 /**
@@ -92,19 +93,40 @@ export async function paycrestCreateOfframp(params: {
   reference?: string;
   returnAddress?: string;
 }): Promise<OfframpOrder> {
-  const { ok, data } = await pc(`/sender/orders`, {
-    method: "POST",
-    body: JSON.stringify(params),
-  });
+  const attempt = async (rate: string) =>
+    pc(`/sender/orders`, {
+      method: "POST",
+      body: JSON.stringify({ ...params, rate }),
+    });
+
+  let usedRate = params.rate;
+  let { ok, data } = await attempt(usedRate);
+
+  // Paycrest enforces a strict 0.1% tolerance between the rate we send and its
+  // current market rate. The public /rates value can drift just outside that
+  // window between quote and order. The rejection states the exact market rate,
+  // so retry once with it instead of failing the whole withdrawal.
   if (!ok) {
-    const msg =
-      data?.data?.message ||
-      (Array.isArray(data?.data) ? data.data[0]?.message : undefined) ||
-      data?.message ||
-      "order_failed";
-    throw new Error(typeof msg === "string" ? msg : "order_failed");
+    const market = extractMessage(data).match(/market rate\s+([\d.]+)/i)?.[1];
+    if (market) {
+      usedRate = market;
+      ({ ok, data } = await attempt(usedRate));
+    }
   }
-  return data.data as OfframpOrder;
+
+  if (!ok) {
+    throw new Error(extractMessage(data));
+  }
+  return { ...(data.data as OfframpOrder), rate: usedRate };
+}
+
+function extractMessage(data: any): string {
+  const msg =
+    data?.data?.message ||
+    (Array.isArray(data?.data) ? data.data[0]?.message : undefined) ||
+    data?.message ||
+    "order_failed";
+  return typeof msg === "string" ? msg : "order_failed";
 }
 
 export async function paycrestGetOrder(id: string) {
