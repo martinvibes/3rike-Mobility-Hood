@@ -114,6 +114,8 @@ export type User = {
   address?: string;
   /** Whether a payment PIN has been set. */
   hasPin?: boolean;
+  /** KYC/verification status — server-side, follows the account. none | verified. */
+  kycStatus?: "none" | "verified";
   /** Embedded EVM wallet auto-created on signup. */
   walletAddress?: string;
   /** Legacy Canton field — retained optional for back-compat with old screens. */
@@ -542,6 +544,99 @@ export async function listInvestmentActivity(): Promise<InvestmentActivity[]> {
 }
 
 // =============================================================================
+// KYC / verification + credit score
+// =============================================================================
+
+export type CreditFactor = { label: string; points: number };
+export type Credit = {
+  score: number | null; // null = locked (not verified)
+  band: string;
+  factors: CreditFactor[];
+  maxLoanUsdc: number;
+};
+
+export type KycStatus = {
+  kycStatus: "none" | "verified";
+  fullName: string | null;
+  verifiedAt: string | null;
+  credit: Credit;
+};
+
+export function getKycStatus(): Promise<KycStatus> {
+  return request<KycStatus>("/kyc/status");
+}
+
+export function submitKyc(payload: {
+  fullName: string;
+  idNumber: string;
+  phone?: string;
+}): Promise<{ kycStatus: "verified"; credit: Credit }> {
+  return request("/kyc/submit", { method: "POST", body: JSON.stringify(payload) });
+}
+
+// =============================================================================
+// Loans (gated by verification + credit score)
+// =============================================================================
+
+export type LoanEligibility = {
+  kycStatus: "none" | "verified";
+  creditScore: number | null;
+  band: string;
+  maxLoanUsdc: number;
+  termWeeks: number;
+  interestPct: number;
+  eligible: boolean;
+  reason: "" | "not_verified" | "low_score" | "active_loan";
+  activeLoanId: number | null;
+};
+
+export type LoanRepayment = {
+  id: number;
+  amountUsdc: string;
+  txHash: string | null;
+  createdAt: string;
+};
+
+export type Loan = {
+  id: number;
+  principalUsdc: string;
+  totalDueUsdc: string;
+  outstandingUsdc: string;
+  weeklyRepayment: string;
+  termWeeks: number;
+  interestPct: number;
+  status: "active" | "repaid";
+  disburseTxHash: string | null;
+  createdAt: string;
+  repaidAt: string | null;
+  repayments: LoanRepayment[];
+};
+
+export function loanEligibility(): Promise<LoanEligibility> {
+  return request<LoanEligibility>("/loans/eligibility");
+}
+
+export async function listLoans(): Promise<Loan[]> {
+  const { loans } = await request<{ loans: Loan[] }>("/loans");
+  return loans;
+}
+
+export function applyForLoan(amountUsdc: string): Promise<{
+  loan: Loan;
+  txHash: string;
+  explorer: string;
+}> {
+  return request("/loans/apply", { method: "POST", body: JSON.stringify({ amountUsdc }) });
+}
+
+export function repayLoan(
+  loanId: number,
+  payload: { amountUsdc: string; pin: string },
+): Promise<{ txHash: string; explorer: string; outstandingUsdc: string; repaid: boolean }> {
+  return request(`/loans/${loanId}/repay`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+// =============================================================================
 // Savings
 // =============================================================================
 
@@ -600,49 +695,6 @@ export function recordPayment(payload: {
 
 export function listPayments(driverId: number): Promise<Payment[]> {
   return request<Payment[]>(`/api/payments/driver/${driverId}`);
-}
-
-// =============================================================================
-// Loans
-// =============================================================================
-
-export type LoanStatus = "active" | "repaid" | "defaulted";
-
-export type Loan = {
-  id: number;
-  driver_id: number;
-  principal_usdc: number;
-  remaining_usdc: number;
-  weekly_repayment: number;
-  status: LoanStatus;
-  created_at: string;
-};
-
-/**
- * Apply for a loan. Backend requires the driver's credit_score >= 500 — newly
- * created drivers start at 0, so expect 422 / forbidden until repayment
- * history bumps their score.
- */
-export function applyForLoan(payload: {
-  driver_id: number;
-  principal_usdc: number;
-  weekly_repayment: number;
-}): Promise<Loan> {
-  return request<Loan>("/api/loans", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function getLoan(id: number): Promise<Loan> {
-  return request<Loan>(`/api/loans/${id}`);
-}
-
-export function repayLoan(id: number, amountUSDC: number): Promise<Loan> {
-  return request<Loan>(`/api/loans/${id}/repay`, {
-    method: "PUT",
-    body: JSON.stringify({ amount_usdc: amountUSDC }),
-  });
 }
 
 // =============================================================================

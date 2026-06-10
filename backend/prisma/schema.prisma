@@ -22,6 +22,12 @@ model User {
   country       String?
   address       String?
   pinHash       String?  // hashed 4-digit payment PIN
+  // KYC / verification (gates loan eligibility). Server-side = follows the
+  // account everywhere (no localStorage). none | verified.
+  kycStatus     String   @default("none")
+  kycFullName   String?
+  kycIdNumber   String?  // national ID / BVN (demo: stored as-is)
+  kycVerifiedAt DateTime?
   // Embedded EVM wallet auto-created on signup.
   walletAddress String   @unique
   encryptedKey  String   // AES-256-GCM encrypted private key
@@ -30,6 +36,7 @@ model User {
   deposits      Deposit[]
   paymentOrders PaymentOrder[]
   investments   Investment[]
+  loans         Loan[]
 }
 
 // Records on/off-chain money movements for history + auditing.
@@ -73,4 +80,33 @@ model Investment {
   amountUsdc  String   // cost (invest) or yield claimed (claim), decimal 6dp
   txHash      String
   createdAt   DateTime @default(now())
+}
+
+// Micro-loans to riders. Gated by KYC + credit score. Principal is disbursed
+// as USDC to the rider's wallet; they repay (principal + flat interest) over a
+// term, which feeds their credit score.
+model Loan {
+  id              Int             @id @default(autoincrement())
+  user            User            @relation(fields: [userId], references: [id])
+  userId          Int
+  principalUsdc   String          // amount borrowed (6dp decimal string)
+  totalDueUsdc    String          // principal + interest
+  outstandingUsdc String          // remaining to repay
+  weeklyRepayment String          // suggested weekly amount
+  termWeeks       Int
+  interestPct     Int             // flat interest applied (e.g. 10)
+  status          String          @default("active") // active | repaid
+  disburseTxHash  String?
+  createdAt       DateTime        @default(now())
+  repaidAt        DateTime?
+  repayments      LoanRepayment[]
+}
+
+model LoanRepayment {
+  id         Int      @id @default(autoincrement())
+  loan       Loan     @relation(fields: [loanId], references: [id])
+  loanId     Int
+  amountUsdc String
+  txHash     String?
+  createdAt  DateTime @default(now())
 }

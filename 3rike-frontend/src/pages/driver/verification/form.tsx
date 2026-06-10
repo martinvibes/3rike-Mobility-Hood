@@ -24,7 +24,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, UploadCloud, CheckCircle2, AlertCircle } from "lucide-react";
 import React from "react";
-import { ApiError } from "@/lib/api";
+import { ApiError, submitKyc } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import MobileFrame from "@/components/ui/mobile-frame";
 
@@ -68,7 +68,7 @@ type FormValues = z.infer<typeof formSchema>;
 export default function VerifyAccountForm() {
     const [currentStep, setCurrentStep] = useState(1);
     const navigate = useNavigate();
-    const { createDriverProfile } = useAuth();
+    const { refresh } = useAuth();
     const [loading, setLoading] = useState(false);
     const [serverError, setServerError] = useState<string | null>(null);
     const [open, setOpen] = React.useState(false);
@@ -150,16 +150,17 @@ export default function VerifyAccountForm() {
         setServerError(null);
         setLoading(true);
         try {
-            // Backend currently only persists name/phone/country on the driver
-            // record. The richer KYC fields (address, ID images, selfie) are
-            // collected here for the product flow but will be wired to a
-            // dedicated KYC endpoint when the backend exposes one.
-            await createDriverProfile({
-                full_name: `${data.firstName.trim()} ${data.lastName.trim()}`.trim(),
+            // Submit KYC to the backend. The richer fields (address, ID images,
+            // selfie) are collected here for the product flow; the MVP backend
+            // verifies on name + an ID reference (we use the phone digits) and
+            // stores the status server-side so it follows the account.
+            await submitKyc({
+                fullName: `${data.firstName.trim()} ${data.lastName.trim()}`.trim(),
+                idNumber: data.phone.replace(/\D/g, "") || "00000000",
                 phone: data.phone.trim(),
-                country: data.country.trim(),
             });
-            // Pending stash served its purpose; clean up.
+            // Pull the updated kycStatus into auth state (drives the dashboard).
+            await refresh();
             localStorage.removeItem(PENDING_PROFILE_KEY);
             navigate("/driver/verification/success");
         } catch (err) {

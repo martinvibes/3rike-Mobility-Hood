@@ -1,399 +1,230 @@
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ShieldCheck, Lock } from "lucide-react";
+import MobileFrame from "@/components/ui/mobile-frame";
+import Skeleton from "@/components/ui/skeleton";
 import {
-    Form,
-    FormControl,
-    FormField,
-    FormItem,
-    FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { ApiError, applyForLoan } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+  ApiError,
+  applyForLoan,
+  listLoans,
+  loanEligibility,
+  type Loan,
+  type LoanEligibility,
+} from "@/lib/api";
 
-// Updated Schema to handle amount as a number string and duration
-const formSchema = z.object({
-    amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
-        message: "Please enter a valid amount",
-    }),
-    duration: z.enum(["7", "14", "30"], {
-        message: "Please select a duration",
-    }),
-});
+const SCORE_MIN = 300;
+const SCORE_MAX = 850;
 
 export default function LoanDashboard() {
-    const navigate = useNavigate();
-    const { driver } = useAuth();
-    const [changeCurrency, setChangeCurrency] = useState(true);
-    const [submitting, setSubmitting] = useState(false);
-    const [serverError, setServerError] = useState<string | null>(null);
-    const [activeLoanId, setActiveLoanId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [elig, setElig] = useState<LoanEligibility | null>(null);
+  const [active, setActive] = useState<Loan | null>(null);
+  const [amount, setAmount] = useState<number>(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        setActiveLoanId(localStorage.getItem("3rike.activeLoanId"));
-    }, []);
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const [e, loans] = await Promise.all([loanEligibility(), listLoans()]);
+      setElig(e);
+      setActive(loans.find((l) => l.status === "active") ?? null);
+      setAmount(Math.min(50, e.maxLoanUsdc));
+    } catch (err) {
+      setError(err instanceof ApiError ? "Couldn't load your loan info." : "Something went wrong.");
+    }
+  }, []);
 
-    const form = useForm<z.infer<typeof formSchema>>({
-        resolver: zodResolver(formSchema),
-        mode: "onChange",
-        defaultValues: {
-            amount: "",
-            duration: "14", // Default to 30 as per image design
-        },
-    });
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-    const formatWithCommas = (value: string | number | undefined) => {
-        if (!value) return "";
-        return Number(value).toLocaleString();
-    };
+  const handleApply = async () => {
+    if (!elig) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await applyForLoan(amount.toFixed(2));
+      navigate(`/driver/loan/active/${res.loan.id}`);
+    } catch (err) {
+      setError(messageForApply(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
+  const score = elig?.creditScore ?? null;
+  const scorePct =
+    score == null ? 0 : Math.max(0, Math.min(100, ((score - SCORE_MIN) / (SCORE_MAX - SCORE_MIN)) * 100));
 
-    // Watch the amount to dynamically update the summary
-    const amountValue = form.watch("amount");
-    const durationValue = form.watch("duration");
+  return (
+    <MobileFrame innerClassName="px-5 py-6 flex flex-col">
+      <header className="flex items-center gap-4 mb-5">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate(-1)}
+          className="w-10 h-10 rounded-full bg-[#E9F8EE] hover:bg-[#d8f1e0] cursor-pointer"
+          type="button"
+        >
+          <ChevronLeft className="w-5 h-5 text-[#01C259]" />
+        </Button>
+        <h1 className="font-semibold text-lg text-gray-900">Loans</h1>
+      </header>
 
-    // Dynamic Calculations
-    const principal = Number(amountValue) || 0;
-    const interestRate = 0.05; // 5% as per image
-    const processingFeeRate = 0.0015; // Small fee ~0.15%
+      {!elig && <Skeleton className="h-40 w-full rounded-2xl mb-4" />}
 
-    const interest = principal * interestRate;
-    const processingFee = principal > 0 ? Math.ceil(principal * processingFeeRate) + 20 : 0; // minimal base fee
-    const totalPayback = principal + interest + processingFee;
-
-    const currencySymbol = changeCurrency ? "$" : "₵";
-
-    async function onSubmit(data: z.infer<typeof formSchema>) {
-        if (!driver) {
-            setServerError("Complete your verification before applying for a loan.");
-            return;
-        }
-        setServerError(null);
-        setSubmitting(true);
-
-        // Compute weekly repayment: total payback / number of weeks (rounded up).
-        const weeks = Math.max(1, Math.ceil(Number(data.duration) / 7));
-        const weeklyRepayment = Math.round((totalPayback / weeks) * 100) / 100;
-
-        try {
-            const loan = await applyForLoan({
-                driver_id: driver.id,
-                principal_usdc: principal,
-                weekly_repayment: weeklyRepayment,
-            });
-            // Cache the loan id locally so the dashboard can surface a "View
-            // active loan" link on subsequent visits.
-            localStorage.setItem("3rike.activeLoanId", String(loan.id));
-
-            // Compute due date from selected duration.
-            const date = new Date();
-            date.setDate(date.getDate() + Number(durationValue));
-            const formattedDueDate = date.toLocaleDateString('en-GB', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-            });
-
-            navigate('/driver/loan/submitted', {
-                state: {
-                    principal,
-                    interest,
-                    processingFee,
-                    totalPayback,
-                    currencySymbol,
-                    dueDate: formattedDueDate,
-                },
-            });
-        } catch (err) {
-            setServerError(messageForLoan(err));
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    // Duration Options Configuration
-    const durations = [
-        { label: "7 Days", sub: "Weekly", val: "7" },
-        { label: "14 Days", sub: "Bi-Weekly", val: "14" },
-        { label: "30 Days", sub: "Monthly", val: "30" },
-    ];
-
-    const goToNotification = () => {
-        navigate("/driver/loan/notification");
-    };
-
-
-    return (
-        <div className="min-h-screen bg-white flex justify-center">
-            {/* Mobile Frame Container */}
-            <div className="w-full max-w-md bg-white shadow-2xl overflow-hidden min-h-screen relative pb-10">
-
-                {/* Header */}
-                <div className="pt-10 px-5 p-6">
-                    <div className="flex items-center justify-between w-full">
-
-                        {/* Back button (left) */}
-                        <Button
-                            variant="link"
-                            onClick={() => navigate(-1)}
-                            className="p-0"
-                        >
-                            <img src="/rounded-back.svg" alt="Back" className="w-10 h-10" />
-                        </Button>
-
-                        {/* Centered title */}
-                        <p className="font-medium text-xl text-center">
-                            Loan
-                        </p>
-
-                        {/* Right placeholder / action */}
-                        <Button
-                            variant="link"
-                            onClick={goToNotification}
-                            className="p-0"
-                        >
-                            <img src="/notification.svg" alt="Back" className="w-10 h-10" />
-                        </Button>
-
-                    </div>
-                </div>
-
-
-                {/* Main Content Scroll Area */}
-                <div className="px-5 space-y-4">
-
-                    {/* Active loan banner — shown when there's a stored loan id */}
-                    {activeLoanId && (
-                        <button
-                            type="button"
-                            onClick={() => navigate(`/driver/loan/active/${activeLoanId}`)}
-                            className="w-full flex items-center justify-between p-3 rounded-xl bg-[#FDF5EA] border border-[#F8D7AB] text-left cursor-pointer hover:bg-[#fbf0e0] transition-colors"
-                        >
-                            <div>
-                                <p className="text-xs font-semibold text-[#EE9C2E]">You have an active loan</p>
-                                <p className="text-[11px] text-[#A86A1F]">Tap to view balance & repay</p>
-                            </div>
-                            <span className="text-[#EE9C2E] text-sm">›</span>
-                        </button>
-                    )}
-
-                    {/* 1. GREEN BALANCE CARD */}
-                    <div className="relative w-full h-40 rounded-3xl p-6 text-white overflow-hidden">
-                        {/* Background Gradient & Blobs */}
-                        <img
-                            src="/earnings-banner.svg"
-                            alt="Card Background"
-                            className="absolute inset-0 w-full h-full bg-[#00C258] object-cover z-0"
-                        />
-
-                        {/* --- Main Content --- */}
-                        <div className="relative z-10 flex h-full flex-col items-center justify-center">
-
-                            {/* Label */}
-                            <div className="mb-1 flex items-center">
-                                <span className="text-sm font-light tracking-wide text-green-50">
-                                    Maximum Eligible Limit
-                                </span>
-                            </div>
-
-                            {/* Amount & Switch Container */}
-                            <div className="relative flex w-full items-center justify-center">
-
-                                {/* Amount Text */}
-                                <h1 className="text-4xl font-bold ">
-                                    {changeCurrency ? "$ 1,500.00" : "₵ 16,000.00"}
-                                </h1>
-
-                                {/* Custom Toggle Switch - Positioned Absolute Right */}
-                                <div className="absolute -right-2 flex items-center">
-                                    <Switch
-                                        checked={changeCurrency}
-                                        onCheckedChange={setChangeCurrency}
-                                        // -rotate-90 makes it vertical. 
-                                        // bg-green-900/20 matches the dark track in the image.
-                                        className="h-6 w-11 -rotate-90 border-8 border-transparent data-[state=checked]:bg-green-900/20 data-[state=unchecked]:bg-green-900/20"
-                                    />
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-
-                    {/* FORM AREA */}
-                    <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-
-                            {/* Input Amount */}
-                            <div className="space-y-4">
-                                <FormField
-                                    control={form.control}
-                                    name="amount"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <div className="bg-gray-50 rounded-xl px-4 py-2 border border-gray-100 focus-within:ring-1 focus-within:ring-green-500 transition-all">
-                                                <label className="text-xs text-gray-400 font-medium ml-1">Enter amount</label>
-                                                <FormControl>
-                                                    <Input
-                                                        type="text"
-                                                        inputMode="numeric"   // mobile numeric keypad
-                                                        pattern="[0-9,]*"
-                                                        className="border-none shadow-none bg-transparent h-6 text-xl font-sm text-gray-800 placeholder:text-gray-300 focus-visible:ring-0 px-1"
-                                                        value={formatWithCommas(field.value)}
-                                                        onChange={(e) => {
-                                                            const raw = e.target.value.replace(/,/g, "");
-                                                            if (!isNaN(Number(raw))) {
-                                                                field.onChange(raw);
-                                                            }
-                                                        }}
-                                                    />
-
-                                                </FormControl>
-                                            </div>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                            </div>
-
-                            {/* Duration Selector */}
-                            <FormField
-                                control={form.control}
-                                name="duration"
-                                render={({ field }) => (
-                                    <FormItem className="space-y-0">
-                                        {/* Added pt-3 to give space for the pill popping up */}
-                                        <div className="grid grid-cols-3 gap-3 pt-3">
-                                            {durations.map((item) => {
-                                                const isSelected = field.value === item.val;
-                                                // Check if this is the 14-day option
-                                                const isPopular = item.val === "14";
-
-                                                return (
-                                                    <div
-                                                        key={item.val}
-                                                        onClick={() => field.onChange(item.val)}
-                                                        className={`
-                                relative cursor-pointer rounded-xl py-4 flex flex-col items-center justify-center transition-all border
-                                ${isSelected
-                                                                ? "bg-[#FDF5EA] border-[#EE9C2E] border-dashed border shadow-sm"
-                                                                : "bg-gray-50 border-transparent text-gray-500"}
-                            `}
-                                                    >
-                                                        {/* --- THE POPULAR PILL --- */}
-                                                        {isPopular && (
-                                                            <div className={`
-                                    absolute -top-3 px-3 py-0.5 h-7 flex items-center rounded-full text-[10px] font-light shadow-sm transition-all
-                                    ${isSelected
-                                                                    ? "bg-[#EE9C2E] text-white"      // Color when 14 is selected
-                                                                    : "bg-[#D5D5D5] text-white"    // Color when 14 is NOT selected
-                                                                }
-                                `}>
-                                                                Popular
-                                                            </div>
-                                                        )}
-
-                                                        <span className={`text-sm font-bold ${isSelected ? "text-[#EE9C2E]" : "text-gray-900"}`}>
-                                                            {item.label}
-                                                        </span>
-                                                        <span className={`text-[10px] ${isSelected ? "text-gray-400" : "text-gray-400"}`}>
-                                                            {item.sub}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </FormItem>
-                                )}
-                            />
-
-                            {/* Loan Summary Card */}
-                            <div className="bg-gray-50 rounded-2xl p-6 space-y-4 border border-gray-100/50">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <img src="/loan_summary.svg" alt="Back" className="w-5 h-5" />
-                                    <h3 className="font-bold text-gray-900 text-sm">Loan Summary</h3>
-                                </div>
-
-                                {/* Breakdown Rows */}
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-[#909090] italic font-light">Principal Amount</span>
-                                        <span className="font-medium text-gray-700">
-                                            {currencySymbol} {principal.toLocaleString()}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-[#909090] italic font-light">Interest (5%)</span>
-                                        <span className="font-medium text-gray-700">
-                                            {currencySymbol} {interest.toLocaleString()}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-[#909090] italic font-light">Processing Fee</span>
-                                        <span className="font-medium text-gray-700">
-                                            {currencySymbol} {processingFee.toLocaleString()}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="h-px bg-gray-200 my-2" />
-
-                                {/* Total Row */}
-                                <div className="flex justify-between items-center">
-                                    <span className="font-bold text-gray-900 text-sm">Total Pay-back</span>
-                                    <span className="font-bold text-[#00C258] text-lg">
-                                        {currencySymbol} {totalPayback.toLocaleString()}
-                                    </span>
-                                </div>
-
-                                <div className="text-right">
-                                    <span className="text-[10px] text-[#C8C8C8] flex justify-end items-center gap-1">
-                                        Due date: 20th October 2025
-                                    </span>
-                                </div>
-                            </div>
-
-                            {serverError && (
-                                <p className="text-sm text-red-500 text-center" role="alert">
-                                    {serverError}
-                                </p>
-                            )}
-
-                            {/* Submit Button */}
-                            <Button
-                                type="submit"
-                                disabled={submitting}
-                                className="w-full bg-[#01C259] hover:bg-[#019f4a] text-white rounded-xl py-6 text-base font-semibold shadow-lg shadow-green-100 transition-all mt-4 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                {submitting ? "Submitting…" : "Submit Request"}
-                            </Button>
-
-                        </form>
-                    </Form>
-
-                </div>
+      {elig && (
+        <>
+          {/* Credit score card */}
+          <div className="bg-[#0E1A13] rounded-2xl p-5 mb-5 text-white relative overflow-hidden">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-white/60">Credit score</p>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10">{elig.band}</span>
             </div>
-        </div>
-    );
+            {score == null ? (
+              <div className="flex items-center gap-2 mt-2">
+                <Lock className="w-5 h-5 text-white/70" />
+                <p className="text-sm text-white/80">Verify your identity to unlock your score</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-4xl font-bold leading-tight">{score}</p>
+                <div className="mt-3 h-2 bg-white/15 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#01C259] rounded-full" style={{ width: `${scorePct}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-white/40 mt-1">
+                  <span>{SCORE_MIN}</span>
+                  <span>{SCORE_MAX}</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* State-driven body */}
+          {elig.reason === "not_verified" && (
+            <GateCard
+              icon={<ShieldCheck className="w-6 h-6 text-[#01C259]" />}
+              title="Verify to unlock loans"
+              body="Complete your KYC verification to get a credit score and become eligible for a loan."
+              cta="Complete verification"
+              onClick={() => navigate("/driver/verification")}
+            />
+          )}
+
+          {elig.reason === "low_score" && (
+            <GateCard
+              icon={<Lock className="w-6 h-6 text-[#F1B058]" />}
+              title="Keep building your score"
+              body="Your credit score isn't high enough for a loan yet. Make deposits, invest, and repay on time to raise it."
+            />
+          )}
+
+          {active && (
+            <button
+              type="button"
+              onClick={() => navigate(`/driver/loan/active/${active.id}`)}
+              className="w-full text-left bg-white border border-gray-100 rounded-2xl p-4 mb-4 hover:border-[#01C259]/40 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-[#909090]">Active loan · outstanding</p>
+                  <p className="text-xl font-bold text-gray-900">${Number(active.outstandingUsdc).toFixed(2)}</p>
+                </div>
+                <span className="text-xs font-semibold text-[#01C259]">Manage →</span>
+              </div>
+            </button>
+          )}
+
+          {/* Apply (only when eligible) */}
+          {elig.eligible && (
+            <div className="bg-white border border-gray-100 rounded-2xl p-5 mt-1">
+              <p className="text-sm font-semibold text-gray-900 mb-1">Apply for a loan</p>
+              <p className="text-xs text-[#909090] mb-4">
+                You qualify for up to <span className="font-semibold text-gray-700">${elig.maxLoanUsdc}</span>.
+                {" "}{elig.interestPct}% over {elig.termWeeks} weeks.
+              </p>
+
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-[#909090]">Amount</span>
+                <span className="text-2xl font-bold text-gray-900">${amount.toFixed(0)}</span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={elig.maxLoanUsdc}
+                step={5}
+                value={amount}
+                onChange={(e) => setAmount(Number(e.target.value))}
+                className="w-full accent-[#01C259] mb-3"
+              />
+              <div className="flex justify-between text-[11px] text-[#909090] mb-4">
+                <span>Weekly ≈ ${((amount * (1 + elig.interestPct / 100)) / elig.termWeeks).toFixed(2)}</span>
+                <span>Total repay ${(amount * (1 + elig.interestPct / 100)).toFixed(2)}</span>
+              </div>
+
+              <Button
+                onClick={handleApply}
+                disabled={submitting || amount <= 0}
+                className="w-full h-12 bg-[#01C259] hover:bg-[#00a049] text-white rounded-2xl disabled:opacity-60 cursor-pointer"
+              >
+                {submitting ? "Processing…" : `Get $${amount.toFixed(0)} loan`}
+              </Button>
+            </div>
+          )}
+
+          {error && <p className="text-sm text-red-500 text-center mt-4">{error}</p>}
+        </>
+      )}
+    </MobileFrame>
+  );
 }
 
-function messageForLoan(err: unknown): string {
-    if (err instanceof ApiError) {
-        switch (err.code) {
-            case "timeout":
-                return "The server is waking up — please try again.";
-            case "network_error":
-                return "Couldn't reach the server. Check your connection.";
-            default:
-                if (err.status === 422 || err.status === 403) {
-                    return "Your credit score isn't high enough yet. Build up repayment history first.";
-                }
-                return "We couldn't submit your loan request. Please try again.";
-        }
+function GateCard({
+  icon,
+  title,
+  body,
+  cta,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  cta?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <div className="bg-[#F2FBF5] rounded-2xl p-5 text-center">
+      <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center mx-auto mb-3">{icon}</div>
+      <p className="text-base font-semibold text-gray-900 mb-1">{title}</p>
+      <p className="text-xs text-[#909090] mb-4">{body}</p>
+      {cta && onClick && (
+        <Button
+          onClick={onClick}
+          className="h-11 px-6 bg-[#01C259] hover:bg-[#00a049] text-white rounded-xl text-sm font-medium cursor-pointer"
+        >
+          {cta}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function messageForApply(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case "not_verified":
+        return "Please complete verification first.";
+      case "low_score":
+        return "Your credit score isn't high enough yet.";
+      case "active_loan":
+        return "You already have an active loan.";
+      case "exceeds_limit":
+        return "That's above your current limit.";
+      default:
+        return "Couldn't process the loan. Please try again.";
     }
-    return "We couldn't submit your loan request. Please try again.";
+  }
+  return "Couldn't process the loan. Please try again.";
 }

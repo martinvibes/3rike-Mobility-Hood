@@ -12,6 +12,7 @@ import {
   X,
   Info,
   ChevronRight,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
@@ -19,7 +20,7 @@ import MobileFrame from "@/components/ui/mobile-frame";
 
 export default function SettingsHome() {
     const navigate = useNavigate();
-    const { logout, deleteAccount } = useAuth();
+    const { logout, deleteAccount, user } = useAuth();
     const [confirmSignOut, setConfirmSignOut] = useState(false);
     const [signingOut, setSigningOut] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -101,6 +102,24 @@ export default function SettingsHome() {
                         label="My Profile"
                         onClick={() => navigate("/driver/settings/profile")}
                     />
+                    {/* Verification / KYC — status follows the account (server-side). */}
+                    <div
+                        onClick={() => navigate("/driver/verification")}
+                        className="flex items-center justify-between p-3 cursor-pointer active:bg-green-100 transition-colors"
+                    >
+                        <div className="flex items-center gap-3">
+                            <ShieldCheck className="w-5 h-5 text-[#01C259]" strokeWidth={2} />
+                            <span className="text-gray-500 font-light text-sm">Verification</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            {user?.kycStatus === "verified" ? (
+                                <span className="text-[11px] font-semibold text-[#01C259]">Verified</span>
+                            ) : (
+                                <span className="text-[11px] font-semibold text-[#F1B058]">Not verified</span>
+                            )}
+                            <ChevronRight className="w-5 h-5 text-gray-400" />
+                        </div>
+                    </div>
                     <MenuItem
                         icon={Wallet}
                         label="Wallet"

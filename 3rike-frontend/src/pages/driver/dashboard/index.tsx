@@ -14,14 +14,11 @@ import { useEarnings } from "@/lib/use-earnings";
 import { useWalletBalance } from "@/lib/use-wallet-balance";
 import { usdToNgnRate } from "@/lib/api";
 
-// Local UX states layered on top of the backend driver record:
-//   - not_started: no driver profile yet → CTA to start KYC
-//   - in_progress: just submitted KYC → brief "we'll get back to you" beat
-//   - approved:    KYC done, can buy a 3rike (Own a 3rike CTA)
-//   - 3riker:      already owns a 3rike (My future 3rike CTA)
+// Verification banner states, driven by the server-side user.kycStatus:
+//   - not_started: KYC not done → "Start Verification" CTA
+//   - 3riker:      KYC verified → "My future 3rike" card
+// (in_progress / approved are retained in the union for the banner copy paths.)
 type VerificationStatus = "not_started" | "in_progress" | "approved" | "3riker";
-
-const POST_KYC_KEY = "3rike.postKycStatus"; // overrides only — only set after a fresh KYC submit
 
 export default function DriverDashboard() {
   const navigate = useNavigate();
@@ -34,7 +31,7 @@ export default function DriverDashboard() {
     refresh: refreshWallet,
   } = useWalletBalance();
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>(
-    () => deriveStatus(driver),
+    user?.kycStatus === "verified" ? "3riker" : "not_started",
   );
 
   // State to control the modals
@@ -61,27 +58,11 @@ export default function DriverDashboard() {
   // returning users don't re-see it.
   const [howItWorksOpen, setHowItWorksOpen] = useState(() => shouldShowHowItWorks());
 
-  // Re-derive when the driver profile changes (e.g. after KYC).
+  // Verification status is SERVER-DRIVEN (user.kycStatus) — it follows the
+  // account everywhere (incognito, other devices), no localStorage.
   useEffect(() => {
-    // Honor an in-flight "in_progress" override briefly after KYC submit.
-    const override = localStorage.getItem(POST_KYC_KEY);
-    if (override === "in_progress" && driver) {
-      setVerificationStatus("in_progress");
-      return;
-    }
-    setVerificationStatus(deriveStatus(driver));
-  }, [driver]);
-
-  // Auto-transition: in_progress -> approved after ~2s so the user sees the
-  // "Verification in Progress" banner briefly before unlocking "Own a 3rike".
-  useEffect(() => {
-    if (verificationStatus !== "in_progress") return;
-    const t = setTimeout(() => {
-      localStorage.removeItem(POST_KYC_KEY);
-      setVerificationStatus(driver ? "approved" : "not_started");
-    }, 2000);
-    return () => clearTimeout(t);
-  }, [verificationStatus, driver]);
+    setVerificationStatus(user?.kycStatus === "verified" ? "3riker" : "not_started");
+  }, [user?.kycStatus]);
 
   // Auto-refresh balances when the tab regains focus — covers the case where
   // a user pays/deposits inside the app and the OS pauses our JS, or where
@@ -456,16 +437,6 @@ export default function DriverDashboard() {
 }
 
 // Maps the backend driver record onto the dashboard's UX states. The
-// "3riker" state (already owns a 3rike) isn't yet reflected on the backend
-// — kept as a localStorage flag until we have a Tricycle ownership endpoint.
-function deriveStatus(
-  driver: { id: number } | null,
-): "not_started" | "in_progress" | "approved" | "3riker" {
-  if (localStorage.getItem("verificationStatus") === "3riker") return "3riker";
-  if (driver) return "approved";
-  return "not_started";
-}
-
 function formatBalance(usdc: number): string {
   return usdc.toLocaleString("en-US", {
     minimumFractionDigits: 2,

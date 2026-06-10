@@ -28,6 +28,7 @@ type UserRecord = {
   country: string | null;
   address: string | null;
   pinHash: string | null;
+  kycStatus: string;
 };
 
 function publicUser(u: UserRecord) {
@@ -41,6 +42,7 @@ function publicUser(u: UserRecord) {
     country: u.country ?? undefined,
     address: u.address ?? undefined,
     hasPin: !!u.pinHash,
+    kycStatus: u.kycStatus ?? "none",
   };
 }
 
