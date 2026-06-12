@@ -50,11 +50,12 @@ export async function creditScoreFor(userId: number): Promise<CreditResult> {
     };
   }
 
-  const [deposits, invests, repaidLoans, repayments] = await Promise.all([
+  const [deposits, invests, repaidLoans, repayments, riderPayments] = await Promise.all([
     prisma.deposit.count({ where: { userId, status: "confirmed" } }),
     prisma.investment.count({ where: { userId, action: "invest" } }),
     prisma.loan.count({ where: { userId, status: "repaid" } }),
     prisma.loanRepayment.count({ where: { loan: { userId } } }),
+    prisma.riderPayment.count({ where: { userId } }),
   ]);
 
   const factors: CreditFactor[] = [{ label: "Identity verified", points: BASE }];
@@ -76,6 +77,13 @@ export async function creditScoreFor(userId: number): Promise<CreditResult> {
   if (repayPts) {
     score += repayPts;
     factors.push({ label: `${repayments} on-time repayment${repayments > 1 ? "s" : ""}`, points: repayPts });
+  }
+
+  // On-time weekly payments toward owning a tricycle — a strong signal.
+  const riderPts = Math.min(riderPayments * 8, 80);
+  if (riderPts) {
+    score += riderPts;
+    factors.push({ label: `${riderPayments} weekly payment${riderPayments > 1 ? "s" : ""} made`, points: riderPts });
   }
 
   const loanPts = repaidLoans * 30;

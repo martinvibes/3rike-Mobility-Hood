@@ -2,12 +2,12 @@
 // reads/writes against TricycleNFT + FractionalInvestment. The relayer sponsors
 // gas; investor txs are signed by the user's own embedded-wallet key.
 
-import { createWalletClient, http, parseEther } from "viem";
+import { createWalletClient, parseEther, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { config } from "../config.js";
 import { erc20Abi } from "./abi.js";
 import { tricycleNftAbi, investmentAbi } from "./investmentAbi.js";
-import { publicClient, relayerClient, robinhoodTestnet, confirm } from "./chain.js";
+import { publicClient, relayerClient, robinhoodTestnet, confirm, rpcTransport } from "./chain.js";
 import { decrypt } from "./crypto.js";
 
 const NFT = config.tricycleNftAddress;
@@ -93,8 +93,9 @@ export async function pendingYieldRaw(
   });
 }
 
-// Gas sponsorship: top a user wallet up to a small ETH float before it signs.
-const MIN_GAS = parseEther("0.0004");
+// Gas sponsorship for the two user txs (approve + invest). Kept modest — gas
+// is cheap here, so this covers both with headroom without draining the relayer.
+const MIN_GAS = parseEther("0.0005");
 const TOPUP_GAS = parseEther("0.0012"); // covers approve + invest
 
 async function ensureGas(address: `0x${string}`) {
@@ -110,7 +111,7 @@ function userClientFrom(encryptedKey: string) {
   const client = createWalletClient({
     account,
     chain: robinhoodTestnet,
-    transport: http(config.rpcUrl),
+    transport: rpcTransport(),
   });
   return { account, client };
 }
@@ -153,6 +154,40 @@ export async function invest(
   await confirm(txHash);
 
   return { txHash, costRaw };
+}
+
+/**
+ * Distribute a yield amount (USDC) to a pool's investors as the platform owner
+ * (relayer). Approves the USDC then calls distributeYield. Returns the tx hash,
+ * or null if the amount is zero or the pool has no investors yet (the contract
+ * would revert with "no shareholders").
+ */
+export async function distributeYieldFromOwner(
+  tricycleId: number,
+  amount: string,
+): Promise<string | null> {
+  const amt = parseUnits(amount, 6);
+  if (amt === 0n) return null;
+
+  const pool = await getPool(tricycleId);
+  if (pool.sharesSold === 0n) return null; // nobody to pay yet
+
+  const approveHash = await relayerClient.writeContract({
+    address: config.usdcAddress,
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [INV, amt],
+  });
+  await confirm(approveHash);
+
+  const txHash = await relayerClient.writeContract({
+    address: INV,
+    abi: investmentAbi,
+    functionName: "distributeYield",
+    args: [BigInt(tricycleId), amt],
+  });
+  await confirm(txHash);
+  return txHash;
 }
 
 /** Claim accrued USDC yield for a pool from the user's embedded wallet. */

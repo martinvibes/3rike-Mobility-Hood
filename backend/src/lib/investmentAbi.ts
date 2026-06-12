@@ -85,4 +85,16 @@ export const investmentAbi = [
     inputs: [{ name: "tricycleId", type: "uint256" }],
     outputs: [],
   },
+  {
+    // onlyOwner — the platform (relayer) distributes a rider's payment slice
+    // to a pool's shareholders. Caller must approve USDC first.
+    type: "function",
+    name: "distributeYield",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "tricycleId", type: "uint256" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
 ] as const;

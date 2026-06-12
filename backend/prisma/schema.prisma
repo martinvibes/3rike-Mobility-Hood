@@ -28,6 +28,9 @@ model User {
   kycFullName   String?
   kycIdNumber   String?  // national ID / BVN (demo: stored as-is)
   kycVerifiedAt DateTime?
+  // The tricycle this rider is paying off (their "future 3rike"). Same asset
+  // investors fractionally fund; the rider's weekly payments yield to them.
+  tricycleId    Int?
   // Embedded EVM wallet auto-created on signup.
   walletAddress String   @unique
   encryptedKey  String   // AES-256-GCM encrypted private key
@@ -37,6 +40,7 @@ model User {
   paymentOrders PaymentOrder[]
   investments   Investment[]
   loans         Loan[]
+  riderPayments RiderPayment[]
 }
 
 // Records on/off-chain money movements for history + auditing.
@@ -109,4 +113,19 @@ model LoanRepayment {
   amountUsdc String
   txHash     String?
   createdAt  DateTime @default(now())
+}
+
+// A rider's weekly payment toward owning their tricycle. Part of each payment
+// (the yield slice) is distributed on-chain to that tricycle's investors;
+// the rest counts toward ownership. Also feeds the rider's credit score.
+model RiderPayment {
+  id          Int      @id @default(autoincrement())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      Int
+  tricycleId  Int
+  amountUsdc  String   // total the rider paid
+  yieldUsdc   String   // portion distributed to investors
+  txHash      String?  // wallet debit tx
+  yieldTxHash String?  // distributeYield tx (null if pool had no investors)
+  createdAt   DateTime @default(now())
 }

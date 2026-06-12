@@ -637,6 +637,64 @@ export function repayLoan(
 }
 
 // =============================================================================
+// Rider weekly payments (toward owning a tricycle → yields to its investors)
+// =============================================================================
+
+export type RiderPaymentRow = {
+  id: number;
+  tricycleId: number;
+  amountUsdc: string;
+  yieldUsdc: string;
+  txHash: string | null;
+  yieldTxHash: string | null;
+  createdAt: string;
+};
+
+export type RiderTricycle = {
+  id: number;
+  vehicleId: string;
+  make: string;
+  model: string;
+  isEV: boolean;
+  priceUsd: number;
+  image: string;
+  location: string;
+};
+
+export type RiderStatus =
+  | { assigned: false; kycStatus: "none" | "verified" }
+  | {
+      assigned: true;
+      kycStatus: "none" | "verified";
+      tricycle: RiderTricycle;
+      weeklyAmount: number;
+      totalPaidUsdc: string;
+      pricePaidPct: number;
+      payments: RiderPaymentRow[];
+    };
+
+export function riderStatus(): Promise<RiderStatus> {
+  return request<RiderStatus>("/rider/status");
+}
+
+export function claimTricycle(tricycleId: number): Promise<RiderStatus> {
+  return request<RiderStatus>("/rider/claim", {
+    method: "POST",
+    body: JSON.stringify({ tricycleId }),
+  });
+}
+
+export function payWeekly(payload: { amountUsdc: string; pin: string }): Promise<{
+  txHash: string;
+  explorer: string;
+  amountUsdc: string;
+  yieldUsdc: string;
+  yieldDistributed: boolean;
+}> {
+  return request("/rider/pay", { method: "POST", body: JSON.stringify(payload) });
+}
+
+// =============================================================================
 // Savings
 // =============================================================================
 

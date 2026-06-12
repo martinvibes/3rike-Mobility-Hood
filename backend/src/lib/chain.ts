@@ -25,9 +25,15 @@ export const robinhoodTestnet = defineChain({
   },
 });
 
+// The Robinhood testnet RPC is slow/rate-limited and intermittently times out,
+// so give every transport a generous timeout + automatic retries. Use
+// `rpcTransport()` for any wallet client created elsewhere too.
+export const rpcTransport = () =>
+  http(config.rpcUrl, { timeout: 30_000, retryCount: 4, retryDelay: 1500 });
+
 export const publicClient = createPublicClient({
   chain: robinhoodTestnet,
-  transport: http(config.rpcUrl),
+  transport: rpcTransport(),
 });
 
 // Platform relayer/treasury: pays gas + performs settlement mints.
@@ -35,7 +41,7 @@ export const relayer = privateKeyToAccount(config.relayerPrivateKey);
 export const relayerClient = createWalletClient({
   account: relayer,
   chain: robinhoodTestnet,
-  transport: http(config.rpcUrl),
+  transport: rpcTransport(),
 });
 
 const USDC_DECIMALS = 6;
@@ -104,12 +110,14 @@ export async function mintUsdc(to: `0x${string}`, amount: string): Promise<strin
     functionName: "mint",
     args: [to, value],
   });
-  await publicClient.waitForTransactionReceipt({ hash });
+  await confirm(hash);
   return hash;
 }
 
-// Minimum gas the relayer tops a user wallet up to before it sends a tx.
-const MIN_GAS = parseEther("0.0003");
+// Gas sponsorship: keep a small ETH float in a user wallet before it signs.
+// Gas here is cheap (~0.01 gwei), so a modest top-up covers many txs — keeping
+// it small makes the relayer's balance stretch across far more wallets.
+const MIN_GAS = parseEther("0.0004");
 const TOPUP_GAS = parseEther("0.0008");
 
 /**
@@ -131,13 +139,13 @@ export async function withdrawUsdc(
       to: account.address,
       value: TOPUP_GAS,
     });
-    await publicClient.waitForTransactionReceipt({ hash: fund });
+    await confirm(fund);
   }
 
   const userClient = createWalletClient({
     account,
     chain: robinhoodTestnet,
-    transport: http(config.rpcUrl),
+    transport: rpcTransport(),
   });
   const value = parseUnits(amount, USDC_DECIMALS);
   const hash = await userClient.writeContract({
@@ -146,6 +154,6 @@ export async function withdrawUsdc(
     functionName: "transfer",
     args: [to, value],
   });
-  await publicClient.waitForTransactionReceipt({ hash });
+  await confirm(hash);
   return hash;
 }

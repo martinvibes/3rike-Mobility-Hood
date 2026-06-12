@@ -7,6 +7,7 @@ import paycrestRoutes from "./routes/paycrest.js";
 import investmentRoutes from "./routes/investment.js";
 import kycRoutes from "./routes/kyc.js";
 import loanRoutes from "./routes/loan.js";
+import riderRoutes from "./routes/rider.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use("/payments", paycrestRoutes);
 app.use("/investment", investmentRoutes);
 app.use("/kyc", kycRoutes);
 app.use("/loans", loanRoutes);
+app.use("/rider", riderRoutes);
 
 app.listen(config.port, () => {
   console.log(`3rike backend listening on :${config.port} (chain ${config.chainId})`);
